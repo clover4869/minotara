@@ -110,11 +110,11 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
     },
 
     flip() {
-        const { flipped, card, mode } = get();
+        const { flipped, card } = get();
         if (flipped || !card) return;
         set({ flipped: true });
-        const { autoplay } = useApp.getState();
-        if (autoplay && mode === 'meaning2word') playRepeating(card.audio);
+        // Không phát ở đây nữa: showCurrent() đã bật vòng lặp từ lúc thẻ hiện
+        // ra rồi. Gọi lại chỉ làm audio nhảy về đầu và reset nhịp 3 giây.
     },
 
     async answer(correct) {
@@ -164,9 +164,9 @@ async function showCurrent(
     set({ card: c });
     const mode = get().mode;
     const { autoplay } = useApp.getState();
-    // meaning2word cố tình KHÔNG phát ở đây: chế độ đó hiện nghĩa và bắt nhớ
-    // lại từ, phát âm thanh lên là đọc luôn đáp án. Chỗ phát của nó là flip().
-    const wordVisible = mode === 'word2meaning' || mode === 'listen';
-    if (autoplay && wordVisible) playRepeating(c.audio);
+    // Bật autoplay là phát, mọi chế độ, không chờ lật thẻ. Kể cả
+    // meaning2word — ở đó phát âm thanh lên là hé đáp án, nhưng đó là điều
+    // người dùng chọn khi bật công tắc này, không phải chỗ để app cản.
+    if (autoplay) playRepeating(c.audio);
     else if (mode === 'listen') playUrl(c.audio);
 }

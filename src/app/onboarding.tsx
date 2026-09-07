@@ -5,15 +5,17 @@
  * hơn ~5,5 lần trên cùng đường truyền. `.so` và `.db` đều không nén thêm được
  * lúc truyền nên chỗ tiết kiệm này chỉ có được bằng cách nén sẵn file.
  *
- * URL vẫn để sửa được, và luồng vẫn nhận cả `.db` thô — `npx serve` một file
- * .db trong LAN là cách debug nhanh nhất, đừng làm mất nó. Lưu ý bản release
- * chặn HTTP thô (xem `hintFor` phía dưới) nên địa chỉ LAN chỉ chạy ở bản debug.
+ * Màn này tự tải ngay khi mở, không nút không ô nhập: chưa có từ điển thì
+ * chẳng có gì để người dùng quyết. Ô URL chỉ hiện khi lỗi VÀ đang ở bản dev —
+ * luồng vẫn nhận cả `.db` thô, vì `npx serve` một file .db trong LAN là cách
+ * debug nhanh nhất, đừng làm mất nó. Bản release chặn HTTP thô (xem `hintFor`)
+ * nên địa chỉ LAN chỉ chạy được ở bản debug, đúng chỗ ô đó xuất hiện.
  *
  * Tải xuống resumable qua expo-file-system; giải nén bằng react-native-zip-archive
  * vì expo-file-system SDK 56 không có API giải nén nào.
  */
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -37,6 +39,24 @@ const LABEL: Record<Phase['kind'], string> = {
     unzip: 'Đang giải nén…',
     check: 'Đang kiểm tra dữ liệu…',
 };
+
+/**
+ * Một thanh tiến độ duy nhất cho cả hai việc: 80% đầu là tải, 20% sau là giải
+ * nén. Hai thanh nối tiếp nhau, mỗi thanh tự chạy 0→100%, làm người dùng
+ * tưởng đã xong rồi lại thấy quay về đầu.
+ *
+ * Tỉ lệ 80/20 là theo cảm nhận, không phải theo thời gian thật: đo trên
+ * emulator thì tải 26MB mất khoảng 30s còn giải nén 143MB chỉ vài giây. Chia
+ * đúng theo thời gian thì phần giải nén gần như vô hình, mà nó lại là lúc dễ
+ * hết dung lượng nhất — cần thấy được là đang làm gì.
+ */
+const DOWNLOAD_SHARE = 0.8;
+
+function overallPct(p: Phase): number {
+    if (p.kind === 'download') return p.pct * DOWNLOAD_SHARE;
+    if (p.kind === 'unzip') return DOWNLOAD_SHARE + p.pct * (1 - DOWNLOAD_SHARE);
+    return 1;
+}
 
 /**
  * react-native-zip-archive nhận đường dẫn hệ thống, còn expo-file-system trả
@@ -71,9 +91,22 @@ export default function Onboarding() {
     const t = usePalette();
     const s = useMemo(() => makeStyles(t), [t]);
     const [url, setUrl] = useState(DEFAULT_URL);
-    const [phase, setPhase] = useState<Phase | null>(null);
+    // Khởi tạo ở 0% chứ không null: hiệu ứng tự tải chỉ chạy sau lần render
+    // đầu, để null thì có một frame màn hình trống không rõ đang chờ gì.
+    const [phase, setPhase] = useState<Phase | null>({ kind: 'download', pct: 0 });
     const [error, setError] = useState<string | null>(null);
     const setDictReady = useApp((st) => st.setDictReady);
+    const started = useRef(false);
+
+    // Chưa có từ điển thì việc duy nhất ở màn này là tải nó về — không có gì
+    // để người dùng chọn, nên đừng bắt họ bấm. `started` chặn chạy hai lần:
+    // Fast Refresh cho hiệu ứng chạy lại, mà hai luồng tải cùng ghi một file
+    // đích là đường tới file .zip hỏng.
+    useEffect(() => {
+        if (started.current) return;
+        started.current = true;
+        download();
+    }, []);
 
     async function download() {
         const src = url.trim();
@@ -133,27 +166,36 @@ export default function Onboarding() {
             <Text style={s.sub}>
                 Tải dữ liệu một lần: 26MB, giải nén ra 143MB trên máy. Nên dùng Wi-Fi.
             </Text>
-            <TextInput style={s.input} value={url} onChangeText={setUrl}
-                placeholderTextColor={t.text.tertiary}
-                autoCapitalize="none" autoCorrect={false} placeholder="URL oxford-app.db.zip" />
-            {phase === null ? (
-                <Pressable style={s.btn} onPress={download}>
-                    <Text style={s.btnText}>{error ? 'Thử lại' : 'Tải về'}</Text>
-                </Pressable>
-            ) : (
+            {/*
+              Đường đi thành công không có nút và không có ô URL: chưa có từ
+              điển thì việc duy nhất là tải, người dùng không có gì để quyết.
+              Chỉ khi lỗi mới hiện lối ra — và ô URL thì chỉ hiện ở bản dev,
+              nơi trỏ vào `npx serve` trong LAN vẫn là cách debug nhanh nhất.
+            */}
+            {phase !== null && (
                 <>
-                    <Text style={s.status}>{LABEL[phase.kind]}</Text>
-                    {phase.kind === 'check' ? null : (
-                        <>
-                            <View style={s.track}>
-                                <View style={[s.fill, { width: `${Math.round(phase.pct * 100)}%` }]} />
-                            </View>
-                            <Text style={s.pct}>{Math.round(phase.pct * 100)}%</Text>
-                        </>
-                    )}
+                    <View style={s.track}>
+                        <View style={[s.fill, { width: `${Math.round(overallPct(phase) * 100)}%` }]} />
+                    </View>
+                    <Text style={s.status}>
+                        {LABEL[phase.kind]}  {Math.round(overallPct(phase) * 100)}%
+                    </Text>
                 </>
             )}
-            {error && <Text style={s.error}>{error}</Text>}
+            {error && (
+                <>
+                    <Text style={s.error}>{error}</Text>
+                    {__DEV__ && (
+                        <TextInput style={s.input} value={url} onChangeText={setUrl}
+                            placeholderTextColor={t.text.tertiary}
+                            autoCapitalize="none" autoCorrect={false}
+                            placeholder="URL oxford-app.db.zip hoặc .db" />
+                    )}
+                    <Pressable style={s.btn} onPress={download}>
+                        <Text style={s.btnText}>Thử lại</Text>
+                    </Pressable>
+                </>
+            )}
         </SafeAreaView>
     );
 }
@@ -170,10 +212,9 @@ function makeStyles(t: Semantic) {
         },
         btn: { marginTop: 16, backgroundColor: t.surface.inverse, paddingHorizontal: 32, paddingVertical: 12, borderRadius: 12 },
         btnText: { color: t.text.onInverse, fontWeight: '600' },
-        status: { marginTop: 20, color: t.text.secondary, fontSize: 13 },
-        track: { alignSelf: 'stretch', height: 8, backgroundColor: t.surface.raised, borderRadius: 999, marginTop: 10 },
+        status: { marginTop: 12, color: t.text.secondary, fontSize: 13, fontVariant: ['tabular-nums'] },
+        track: { alignSelf: 'stretch', height: 8, backgroundColor: t.surface.raised, borderRadius: 999, marginTop: 28 },
         fill: { height: 8, backgroundColor: t.accent.bg, borderRadius: 999 },
-        pct: { marginTop: 8, color: t.text.secondary, fontSize: 13 },
         error: { marginTop: 12, color: t.text.error, fontSize: 13, textAlign: 'center' },
     });
 }
