@@ -147,8 +147,14 @@ export async function removeDictionaryFile(): Promise<void> {
         await globalCache.__minotaraDictDbPromise.then((db) => db.closeAsync()).catch(() => {});
         globalCache.__minotaraDictDbPromise = null;
     }
-    await FileSystem.deleteAsync(DICT_PATH, { idempotent: true });
-    await FileSystem.deleteAsync(DICT_META_PATH, { idempotent: true });
+    // Phải xoá cả -wal và -shm, không chỉ file .db. Cả hai chạy WAL nên SQLite
+    // để lại hai file này bên cạnh; xoá .db mà bỏ sót chúng thì lần mở tiếp
+    // theo SQLite thấy một WAL trỏ vào file nó không nhận ra và chết bằng
+    // "file is not a database" — tức là tải lại từ điển xong vẫn hỏng, đúng
+    // tình huống mà hàm này tồn tại để cứu.
+    for (const p of [DICT_PATH, `${DICT_PATH}-wal`, `${DICT_PATH}-shm`, DICT_META_PATH]) {
+        await FileSystem.deleteAsync(p, { idempotent: true });
+    }
 }
 
 export async function dictMeta(db: DbLike): Promise<string | null> {

@@ -1,38 +1,117 @@
 /**
- * SCR-00 — First launch: download oxford-app.db, then PRAGMA integrity_check.
- * Resumable via expo-file-system DownloadResumable. For development, the URL
- * field accepts a LAN address (npx serve on your machine).
+ * SCR-00 — First launch: fetch oxford-app.db, then PRAGMA integrity_check.
+ *
+ * Mặc định tải bản `.zip` từ GitHub Release: 26MB thay vì 143MB, tức là nhanh
+ * hơn ~5,5 lần trên cùng đường truyền. `.so` và `.db` đều không nén thêm được
+ * lúc truyền nên chỗ tiết kiệm này chỉ có được bằng cách nén sẵn file.
+ *
+ * URL vẫn để sửa được, và luồng vẫn nhận cả `.db` thô — `npx serve` một file
+ * .db trong LAN là cách debug nhanh nhất, đừng làm mất nó. Lưu ý bản release
+ * chặn HTTP thô (xem `hintFor` phía dưới) nên địa chỉ LAN chỉ chạy ở bản debug.
+ *
+ * Tải xuống resumable qua expo-file-system; giải nén bằng react-native-zip-archive
+ * vì expo-file-system SDK 56 không có API giải nén nào.
  */
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system/legacy';
+import { subscribe, unzip } from 'react-native-zip-archive';
 
 import { DICT_PATH, integrityCheckDictionary, recordDictionaryMeta, removeDictionaryFile } from '@/db/open';
 import { useApp } from '@/stores/app';
 import { usePalette } from '@/theme/use-palette';
 import type { Semantic } from '@/theme/tokens';
 
-const DEFAULT_URL = 'http://192.168.1.10:3000/oxford-app.db';
+const DEFAULT_URL = 'https://github.com/clover4869/minotara/releases/download/db-v1/oxford-app.db.zip';
+const ZIP_PATH = `${DICT_PATH}.zip`;
+
+type Phase =
+    | { kind: 'download'; pct: number }
+    | { kind: 'unzip'; pct: number }
+    | { kind: 'check' };
+
+const LABEL: Record<Phase['kind'], string> = {
+    download: 'Đang tải từ điển…',
+    unzip: 'Đang giải nén…',
+    check: 'Đang kiểm tra dữ liệu…',
+};
+
+/**
+ * react-native-zip-archive nhận đường dẫn hệ thống, còn expo-file-system trả
+ * về URI `file:///…`. Truyền nguyên URI vào thì zip4j hiểu "file:" là một
+ * thư mục và tạo ra đúng thư mục đó thay vì báo lỗi, nên lỗi sẽ hiện ở tận
+ * bước integrity_check dưới dạng "không tìm thấy file" — rất khó truy.
+ */
+function fsPath(uri: string): string {
+    const p = uri.replace(/^file:\/\//, '');
+    try {
+        return decodeURIComponent(p);
+    } catch {
+        return p; // đường dẫn có '%' thật thì cứ để nguyên, còn hơn là throw
+    }
+}
+
+/** Gợi ý cho những lỗi mà nguyên văn của hệ thống không nói được phải làm gì. */
+function hintFor(msg: string): string {
+    if (/enospc|no space|disk full|quota/i.test(msg)) {
+        return 'Không đủ dung lượng. Cần khoảng 200MB trống: 26MB cho file nén cộng 143MB sau khi giải nén.';
+    }
+    // Android chặn HTTP thô từ targetSdk 28 trở lên, và bản release không bật
+    // usesCleartextTraffic như bản debug. Nguyên văn của hệ thống là
+    // "CLEARTEXT communication to … not permitted" — đọc xong vẫn không biết sửa gì.
+    if (/cleartext/i.test(msg)) {
+        return 'Bản phát hành không cho tải qua HTTP thô. Dùng địa chỉ bắt đầu bằng https://';
+    }
+    return msg;
+}
 
 export default function Onboarding() {
     const t = usePalette();
     const s = useMemo(() => makeStyles(t), [t]);
     const [url, setUrl] = useState(DEFAULT_URL);
-    const [pct, setPct] = useState<number | null>(null);
+    const [phase, setPhase] = useState<Phase | null>(null);
     const [error, setError] = useState<string | null>(null);
     const setDictReady = useApp((st) => st.setDictReady);
 
     async function download() {
+        const src = url.trim();
+        const isZip = /\.zip($|\?)/i.test(src);
         setError(null);
-        setPct(0);
+        setPhase({ kind: 'download', pct: 0 });
         try {
-            const dl = FileSystem.createDownloadResumable(url, DICT_PATH, {},
-                (p) => setPct(p.totalBytesExpectedToWrite > 0
-                    ? p.totalBytesWritten / p.totalBytesExpectedToWrite : 0));
+            // Dọn trước khi ghi: file .db cũ kèm -wal/-shm của nó, và cả file
+            // zip còn sót của lần thử trước. Giải nén lên một .db cũ mà để lại
+            // WAL cũ là đường ngắn nhất tới "file is not a database".
+            await removeDictionaryFile();
+            await FileSystem.deleteAsync(ZIP_PATH, { idempotent: true });
+
+            const dl = FileSystem.createDownloadResumable(src, isZip ? ZIP_PATH : DICT_PATH, {},
+                (p) => setPhase({
+                    kind: 'download',
+                    pct: p.totalBytesExpectedToWrite > 0
+                        ? p.totalBytesWritten / p.totalBytesExpectedToWrite : 0,
+                }));
             const res = await dl.downloadAsync();
             if (!res || res.status !== 200) throw new Error(`HTTP ${res?.status ?? '?'}`);
+
+            if (isZip) {
+                setPhase({ kind: 'unzip', pct: 0 });
+                const sub = subscribe(({ progress }) => setPhase({ kind: 'unzip', pct: progress }));
+                try {
+                    // Trong zip, file tên đúng là oxford-app.db nên nó rơi
+                    // thẳng vào DICT_PATH, không cần đổi tên sau.
+                    await unzip(fsPath(ZIP_PATH), fsPath(FileSystem.documentDirectory!));
+                } finally {
+                    sub.remove();
+                    // Xoá zip kể cả khi giải nén lỗi: 26MB nằm lại chẳng ai
+                    // đọc, và bấm "Thử lại" là tải bản mới chứ không dùng lại nó.
+                    await FileSystem.deleteAsync(ZIP_PATH, { idempotent: true });
+                }
+            }
+
+            setPhase({ kind: 'check' });
             const ok = await integrityCheckDictionary();
             if (!ok) {
                 await removeDictionaryFile();
@@ -42,12 +121,8 @@ export default function Onboarding() {
             setDictReady(true);
             router.replace('/');
         } catch (e: any) {
-            const msg = String(e?.message ?? e);
-            const disk = /enospc|no space|disk full|quota/i.test(msg);
-            setError(disk
-                ? 'Không đủ dung lượng. Cần vài trăm MB trống để tải từ điển.'
-                : (e.message ?? 'Tải thất bại'));
-            setPct(null);
+            setError(hintFor(String(e?.message ?? e)));
+            setPhase(null);
         }
     }
 
@@ -56,20 +131,26 @@ export default function Onboarding() {
             <Text style={s.logo}>Minotara</Text>
             <Text style={s.title}>Chuẩn bị từ điển</Text>
             <Text style={s.sub}>
-                Tải dữ liệu từ điển một lần (~vài trăm MB). Nên dùng Wi-Fi.
+                Tải dữ liệu một lần: 26MB, giải nén ra 143MB trên máy. Nên dùng Wi-Fi.
             </Text>
             <TextInput style={s.input} value={url} onChangeText={setUrl}
                 placeholderTextColor={t.text.tertiary}
-                autoCapitalize="none" autoCorrect={false} placeholder="URL oxford-app.db" />
-            {pct === null ? (
+                autoCapitalize="none" autoCorrect={false} placeholder="URL oxford-app.db.zip" />
+            {phase === null ? (
                 <Pressable style={s.btn} onPress={download}>
                     <Text style={s.btnText}>{error ? 'Thử lại' : 'Tải về'}</Text>
                 </Pressable>
             ) : (
                 <>
-                    <Text style={s.status}>Đang chuẩn bị từ điển…</Text>
-                    <View style={s.track}><View style={[s.fill, { width: `${Math.round(pct * 100)}%` }]} /></View>
-                    <Text style={s.pct}>{Math.round(pct * 100)}%</Text>
+                    <Text style={s.status}>{LABEL[phase.kind]}</Text>
+                    {phase.kind === 'check' ? null : (
+                        <>
+                            <View style={s.track}>
+                                <View style={[s.fill, { width: `${Math.round(phase.pct * 100)}%` }]} />
+                            </View>
+                            <Text style={s.pct}>{Math.round(phase.pct * 100)}%</Text>
+                        </>
+                    )}
                 </>
             )}
             {error && <Text style={s.error}>{error}</Text>}
