@@ -41,3 +41,7 @@ example
 # generated native folders
 /ios
 /android
+
+# DB từ điển: tải từ GitHub Release lúc chạy lần đầu, không đóng vào repo
+oxford-app.db
+oxford-app-slim.db
