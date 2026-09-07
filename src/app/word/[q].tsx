@@ -4,7 +4,7 @@
  * not a filled accent card (brief: the entry is the chrome).
  */
 import { useLocalSearchParams, router } from 'expo-router';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
     ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
@@ -22,11 +22,26 @@ import { playUrl, pickAudioUrl } from '@/services/audio';
 import { addHistory, getSaved, saveWord, unsaveWord, updateUserMeaning, type SavedWord } from '@/db/user';
 import { useApp, FONT_MULT } from '@/stores/app';
 import { Speaker, Chip, CefrBadge, IconButton, Icons, UiIcon } from '@/components/dict-ui';
+import { WordImages } from '@/components/word-images';
+import { SearchOverlay } from '@/components/search-overlay';
 import { usePalette } from '@/theme/use-palette';
 import { primitive, radius, space, type as typeScale } from '@/theme/tokens';
 import type { Semantic } from '@/theme/tokens';
 
 const IPA_FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+
+/**
+ * Ba view của cùng một entry, chia theo NGUỒN DỮ LIỆU chứ không theo section.
+ * Chia theo section thì tab "Idioms" rỗng với 94,5% số từ và tab "Phrasal verbs"
+ * rỗng với 96% — một tab rỗng gần như luôn luôn thì dạy người dùng đừng bấm nó.
+ * Ba nguồn dưới đây thì gần như luôn có nội dung.
+ *
+ * Anh–Anh đứng đầu vì đây là view DUY NHẤT chạy offline (brief §3.1 "English
+ * first, network never blocks") — mặc định mở ra một tab có thể hiện "Cần mạng"
+ * là trải nghiệm tệ.
+ */
+const VIEWS = ['Anh–Anh', 'Ảnh', 'Tiếng Việt'] as const;
+const V_EN = 0, V_IMG = 1, V_VI = 2;
 
 export default function WordDetail() {
     const t = usePalette();
@@ -38,7 +53,16 @@ export default function WordDetail() {
     const fs = FONT_MULT[fontScale];
 
     const [result, setResult] = useState<LookupResult | null>(null);
-    const [tab, setTab] = useState(0);
+    /** Entry nào đang xem (homograph: bank-noun / bank-verb). Trục khác hẳn `view`. */
+    const [entryIdx, setEntryIdx] = useState(0);
+    /** View nào đang xem. Đổi `entryIdx` KHÔNG đụng tới đây — đang đọc Tiếng Việt
+     *  của bank-noun mà bấm sang verb thì vẫn ở Tiếng Việt, không bị đá về đầu. */
+    const [view, setView] = useState<number>(V_EN);
+    /** View đã từng mở. View chưa mở thì không mount → tab Ảnh không gọi DuckDuckGo
+     *  cho tới khi người dùng thật sự bấm vào. Mở rồi thì giữ mount (chỉ display:none)
+     *  nên vị trí cuộn và ảnh đã tải của từng view được giữ nguyên khi chuyển qua lại. */
+    const [visited, setVisited] = useState<Set<number>>(() => new Set([V_EN]));
+    const [searchOpen, setSearchOpen] = useState(false);
     const [inflections, setInflections] = useState<FormRow[]>([]);
     const [vi, setVi] = useState<{ list: ViMeaning[]; failed: boolean } | null>(null);
     const [viTick, setViTick] = useState(0);
@@ -61,14 +85,14 @@ export default function WordDetail() {
                 ? Math.max(0, r.entries.findIndex((e) => e.id === entryId))
                 : initialEntryIndex(r.entries, r.formOf);
             setResult(r);
-            setTab(idx);
+            setEntryIdx(idx);
             await addHistory(user, r.query || (q ?? ''), r.entries[idx]?.id ?? r.entries[0]?.id ?? null);
             Network.getNetworkStateAsync().then((n) => alive && setOnline(!!n.isConnected)).catch(() => {});
         })();
         return () => { alive = false; };
     }, [q, id]);
 
-    const entry: EntryRow | undefined = result?.entries[tab];
+    const entry: EntryRow | undefined = result?.entries[entryIdx];
     const data = useMemo(() => (entry ? parseEntryData(entry.data) : null), [entry]);
     const senses = (data?.senses ?? []).filter((x) => x.definition);
     const isStub = !!result && result.formOf.length > 0 && senses.length === 0;
@@ -120,9 +144,12 @@ export default function WordDetail() {
         );
     }
 
-    const viForTab = vi ? meaningsForPos(vi.list, entry?.pos ?? null) : null;
+    const viForPos = vi ? meaningsForPos(vi.list, entry?.pos ?? null) : null;
     const viOther = vi ? meaningsOtherPos(vi.list, entry?.pos ?? null) : [];
     const formWord = result.formOf[0]?.form ?? result.query;
+    // Same lemma-first priority the Vietnamese lookup uses: searching images for
+    // "ran" returns noise, images for "run" are the ones that aid memory.
+    const imageQuery = result.formOf[0]?.lemma ?? entry?.headword ?? result.query;
     const youglish = `https://youglish.com/pronounce/${encodeURIComponent(formWord)}/english/${dialect === 'us' ? 'us' : 'uk'}`;
     const grouped = groupFormOf(result.formOf);
     const saved = !!savedRow;
@@ -165,23 +192,18 @@ export default function WordDetail() {
         router.push(`/word/${encodeURIComponent(text)}`);
     }
 
-    return (
-        <SafeAreaView style={s.root} edges={['top']}>
-            <ScrollView contentContainerStyle={{ paddingBottom: 48 }}>
-                <View style={s.header}>
-                    <IconButton icon={Icons.ArrowLeft} label="Quay lại" onPress={() => router.back()} />
-                    <Text style={s.headQuery}>{result.query}</Text>
-                    {entry && (
-                        <IconButton
-                            icon={saved ? Icons.BookmarkCheck : Icons.Bookmark}
-                            label={saved ? 'Bỏ lưu' : 'Lưu từ'}
-                            active={saved}
-                            onPress={toggleSave}
-                        />
-                    )}
-                </View>
+    function selectView(i: number) {
+        setView(i);
+        if (!visited.has(i)) setVisited((prev) => new Set(prev).add(i));
+    }
 
-                {grouped.length > 0 && (
+    /* Khối nhận diện từ. Nằm TRONG mỗi ScrollView chứ không ghim trên đầu: loa
+       phát âm dùng lúc mới mở từ, không dùng liên tục, nên để nó cuộn đi và
+       nhường màn hình cho nội dung. Thanh tab mới là thứ được ghim.
+       Cùng một element dùng lại cho cả 3 view — React tự tạo 3 instance riêng. */
+    const identity = (
+        <>
+            {grouped.length > 0 && (
                     <View style={s.formOf}>
                         <View style={s.formOfSpine} />
                         <View style={{ flex: 1 }}>
@@ -213,49 +235,69 @@ export default function WordDetail() {
                     </View>
                 )}
 
-                {result.entries.length > 1 && (
-                    <View style={[s.row, { paddingHorizontal: space.md, marginTop: space.md }]}>
+            {entry && data && (
+                <View style={{ paddingHorizontal: space.md, marginTop: space.md }}>
+                    <View style={[s.row, { alignItems: 'baseline' }]}>
+                        <Text style={[s.headword, { fontSize: 30 * fs }]}>{entry.headword}</Text>
+                        {data.homograph != null ? <Text style={s.hom}>{data.homograph}</Text> : null}
+                        <CefrBadge level={entry.cefr} />
+                    </View>
+
+                    {/* Từ loại — thay hẳn dòng chữ xám "noun · grammar · labels" cũ.
+                        91,3% số từ chỉ có 1 từ loại: vẫn tô đậm y hệt (nó đọc ra là
+                        TRẠNG THÁI "từ này là danh từ"), chỉ bỏ onPress nên bấm vào
+                        không nhấp nháy như một cái nút hỏng. */}
+                    <View style={[s.row, { marginTop: space.sm, gap: 6 }]}>
                         {result.entries.map((e, i) => (
-                            <Chip key={e.id} active={i === tab} label={e.pos ?? '—'} onPress={() => setTab(i)} />
+                            <Chip
+                                key={e.id}
+                                active={i === entryIdx}
+                                label={e.pos ?? '—'}
+                                onPress={result.entries.length > 1 ? () => setEntryIdx(i) : undefined}
+                            />
                         ))}
                     </View>
-                )}
 
-                {entry && data && (
-                    <>
-                        <View style={{ paddingHorizontal: space.md, marginTop: space.md }}>
-                            <View style={[s.row, { alignItems: 'baseline' }]}>
-                                <Text style={[s.headword, { fontSize: 30 * fs }]}>{entry.headword}</Text>
-                                {data.homograph != null ? <Text style={s.hom}>{data.homograph}</Text> : null}
-                                <CefrBadge level={entry.cefr} />
-                            </View>
-                            <Text style={s.posLine}>
-                                {[entry.pos, data.grammar, data.labels].filter(Boolean).join(' · ')}
-                            </Text>
-                            {!isStub && (
-                                <>
-                                    <View style={[s.row, { marginTop: space.sm }]}>
-                                        {data.pronunciations?.uk?.phon ? <Text style={s.ipa}>UK {data.pronunciations.uk.phon}</Text> : null}
-                                        <Speaker url={data.pronunciations?.uk?.audio_mp3} />
-                                        {data.pronunciations?.us?.phon ? <Text style={s.ipa}>US {data.pronunciations.us.phon}</Text> : null}
-                                        <Speaker url={data.pronunciations?.us?.audio_mp3} />
-                                    </View>
-                                    {online && (
-                                        <Pressable
-                                            onPress={() => Linking.openURL(youglish)}
-                                            style={[s.row, { marginTop: space.sm }]}
-                                            accessibilityRole="link"
-                                            accessibilityLabel="Nghe trong video thật"
-                                        >
-                                            <UiIcon icon={Icons.ExternalLink} size={14} color={t.accent.bg} />
-                                            <Text style={s.youglish}>Nghe trong video thật</Text>
-                                        </Pressable>
-                                    )}
-                                </>
-                            )}
+                    {/* grammar/labels xuống dòng riêng: 45,6% số từ có chúng, và gộp
+                        cùng hàng với chip thì hàng đó vừa chọn được vừa không, khó đọc. */}
+                    {(data.grammar || data.labels) ? (
+                        <View style={[s.row, { marginTop: 6, gap: 6 }]}>
+                            {data.grammar ? <Text style={s.tagBadge}>{data.grammar.replace(/^\[|\]$/g, '')}</Text> : null}
+                            {data.labels ? <Text style={s.tagBadge}>{data.labels.replace(/^\(|\)$/g, '')}</Text> : null}
                         </View>
+                    ) : null}
 
-                        {isStub ? (
+                    {!isStub && (
+                        <>
+                            <View style={[s.row, { marginTop: space.sm }]}>
+                                {data.pronunciations?.uk?.phon ? <Text style={s.ipa}>UK {data.pronunciations.uk.phon}</Text> : null}
+                                <Speaker url={data.pronunciations?.uk?.audio_mp3} />
+                                {data.pronunciations?.us?.phon ? <Text style={s.ipa}>US {data.pronunciations.us.phon}</Text> : null}
+                                <Speaker url={data.pronunciations?.us?.audio_mp3} />
+                            </View>
+                            {online && (
+                                <Pressable
+                                    onPress={() => Linking.openURL(youglish)}
+                                    style={[s.row, { marginTop: space.sm }]}
+                                    accessibilityRole="link"
+                                    accessibilityLabel="Nghe trong video thật"
+                                >
+                                    <UiIcon icon={Icons.ExternalLink} size={14} color={t.accent.bg} />
+                                    <Text style={s.youglish}>Nghe trong video thật</Text>
+                                </Pressable>
+                            )}
+                        </>
+                    )}
+                </View>
+            )}
+        </>
+    );
+
+    /* View 1 — Anh–Anh. Nguồn offline, luôn có nội dung. Idioms/phrasal/origin ở
+       lại đây dạng accordion vì chỉ 5,5% / 4,0% số từ có chúng. */
+    const viewEn = entry && data && (
+        <>
+            {isStub ? (
                             <Text style={[s.viFail, { paddingHorizontal: space.md }]}>
                                 Đây là dạng biến thể — dùng “Xem từ gốc” ở trên.
                             </Text>
@@ -280,70 +322,6 @@ export default function WordDetail() {
                                     {senses.map((sense, i) => (
                                         <SenseBlock key={i} n={i + 1} sense={sense} fs={fs} onChip={openRelated} s={s} t={t} />
                                     ))}
-                                </View>
-
-                                <View style={s.section}>
-                                    <View style={[s.row, { justifyContent: 'space-between' }]}>
-                                        <Text style={s.cardTitle}>Ghi chú nghĩa của bạn</Text>
-                                        <Pressable onPress={() => {
-                                            setMeaningDraft(savedRow?.user_meaning ?? '');
-                                            setEditingMeaning((v) => !v);
-                                        }}>
-                                            <Text style={s.link}>{editingMeaning ? 'Huỷ' : 'Sửa'}</Text>
-                                        </Pressable>
-                                    </View>
-                                    {editingMeaning ? (
-                                        <>
-                                            <TextInput
-                                                style={s.meaningInput}
-                                                value={meaningDraft}
-                                                onChangeText={setMeaningDraft}
-                                                placeholder="Nghĩa / ghi chú riêng…"
-                                                placeholderTextColor={t.text.tertiary}
-                                                multiline
-                                            />
-                                            <Pressable onPress={saveMeaning} style={{ alignSelf: 'flex-end', marginTop: 6 }}>
-                                                <Text style={[s.link, { fontWeight: '600' }]}>Lưu</Text>
-                                            </Pressable>
-                                        </>
-                                    ) : savedRow?.user_meaning ? (
-                                        <Text style={[s.definition, { marginTop: 8 }]}>{savedRow.user_meaning}</Text>
-                                    ) : (
-                                        <Text style={[s.viFail, { marginTop: 6 }]}>Chưa có — flashcard dùng nghĩa từ điển.</Text>
-                                    )}
-                                </View>
-
-                                <View style={[s.section, { backgroundColor: t.surface.raised, marginHorizontal: space.md, padding: space.md, borderRadius: radius.lg }]}>
-                                    <Text style={s.cardTitle}>Nghĩa tiếng Việt</Text>
-                                    {vi === null && <ActivityIndicator size="small" color={t.accent.bg} style={{ marginTop: 8 }} />}
-                                    {vi?.failed && vi.list.length === 0 && (
-                                        <View style={[s.row, { marginTop: 8 }]}>
-                                            <Text style={s.viFail}>Cần mạng để xem nghĩa Việt</Text>
-                                            <Pressable onPress={() => setViTick((n) => n + 1)} style={s.row}>
-                                                <UiIcon icon={Icons.RotateCcw} size={14} color={t.accent.bg} />
-                                                <Text style={s.link}>Thử lại</Text>
-                                            </Pressable>
-                                        </View>
-                                    )}
-                                    {viForTab?.slice(0, 6).map((m, i) => (
-                                        <View key={i} style={{ marginTop: 8 }}>
-                                            <Text style={[s.definition, { fontSize: 15 * fs }]}>{m.definition}</Text>
-                                            {m.example ? <Text style={s.example}>{m.example}</Text> : null}
-                                        </View>
-                                    ))}
-                                    {viOther.length > 0 && (
-                                        <>
-                                            <Text style={[s.cardTitle, { marginTop: 12 }]}>Nghĩa khác</Text>
-                                            {viOther.slice(0, 4).map((m, i) => (
-                                                <Text key={i} style={[s.definition, { marginTop: 6, fontSize: 14 * fs }]}>{m.definition}</Text>
-                                            ))}
-                                        </>
-                                    )}
-                                    {vi && !vi.failed && vi.list.length > 0 && (
-                                        <Pressable onPress={() => Linking.openURL('https://dict.minhqnd.com')}>
-                                            <Text style={s.attribution}>Nguồn: dict.minhqnd.com</Text>
-                                        </Pressable>
-                                    )}
                                 </View>
 
                                 {data.idioms.length > 0 && (
@@ -385,9 +363,146 @@ export default function WordDetail() {
                                 )}
                             </>
                         )}
+        </>
+    );
+
+    /* View 2 — Ảnh. Không còn accordion: chính việc mở tab là tín hiệu "tôi muốn
+       xem ảnh", vì view chưa vào thì không nằm trong `visited` nên không mount,
+       nên không gọi DuckDuckGo. Cùng hợp đồng lazy cũ, ít hơn một lớp bọc. */
+    const viewImg = (
+        // Padding phải ở đây: trước kia <Accordion> cấp lề cho lưới ảnh, bỏ accordion
+        // đi thì lưới tràn sát mép trong khi mọi thứ khác vẫn thụt vào.
+        <View style={s.section}>
+            <WordImages word={imageQuery} />
+        </View>
+    );
+
+    /* View 3 — Tiếng Việt + ghi chú của bạn. Hai thứ này đi cùng nhau vì cùng trả
+       lời một câu hỏi ("từ này nghĩa là gì bằng tiếng mình"), và ghi chú của user
+       là thứ thắng nghĩa từ điển trên flashcard (brief §3.3). */
+    const viewVi = (
+        <>
+            <View style={[s.section, { backgroundColor: t.surface.raised, marginHorizontal: space.md, padding: space.md, borderRadius: radius.lg }]}>
+                <Text style={s.cardTitle}>Nghĩa tiếng Việt</Text>
+                {vi === null && <ActivityIndicator size="small" color={t.accent.bg} style={{ marginTop: 8 }} />}
+                {vi?.failed && vi.list.length === 0 && (
+                    <View style={[s.row, { marginTop: 8 }]}>
+                        <Text style={s.viFail}>Cần mạng để xem nghĩa Việt</Text>
+                        <Pressable onPress={() => setViTick((n) => n + 1)} style={s.row}>
+                            <UiIcon icon={Icons.RotateCcw} size={14} color={t.accent.bg} />
+                            <Text style={s.link}>Thử lại</Text>
+                        </Pressable>
+                    </View>
+                )}
+                {viForPos?.slice(0, 6).map((m, i) => (
+                    <View key={i} style={{ marginTop: 8 }}>
+                        <Text style={[s.definition, { fontSize: 15 * fs }]}>{m.definition}</Text>
+                        {m.example ? <Text style={s.example}>{m.example}</Text> : null}
+                    </View>
+                ))}
+                {viOther.length > 0 && (
+                    <>
+                        <Text style={[s.cardTitle, { marginTop: 12 }]}>Nghĩa khác</Text>
+                        {viOther.slice(0, 4).map((m, i) => (
+                            <Text key={i} style={[s.definition, { marginTop: 6, fontSize: 14 * fs }]}>{m.definition}</Text>
+                        ))}
                     </>
                 )}
-            </ScrollView>
+                {vi && !vi.failed && vi.list.length > 0 && (
+                    <Pressable onPress={() => Linking.openURL('https://dict.minhqnd.com')}>
+                        <Text style={s.attribution}>Nguồn: dict.minhqnd.com</Text>
+                    </Pressable>
+                )}
+            </View>
+
+            <View style={[s.section, { backgroundColor: t.surface.raised, marginHorizontal: space.md, padding: space.md, borderRadius: radius.lg }]}>
+                <View style={[s.row, { justifyContent: 'space-between' }]}>
+                    <Text style={s.cardTitle}>Ghi chú nghĩa của bạn</Text>
+                    <Pressable
+                        style={s.row}
+                        onPress={() => {
+                            setMeaningDraft(savedRow?.user_meaning ?? '');
+                            setEditingMeaning((v) => !v);
+                        }}
+                    >
+                        {!editingMeaning && <UiIcon icon={Icons.SquarePen} size={14} color={t.accent.bg} />}
+                        <Text style={s.link}>{editingMeaning ? 'Huỷ' : 'Sửa'}</Text>
+                    </Pressable>
+                </View>
+                {editingMeaning ? (
+                    <>
+                        <TextInput
+                            style={s.meaningInput}
+                            value={meaningDraft}
+                            onChangeText={setMeaningDraft}
+                            placeholder="Nghĩa / ghi chú riêng…"
+                            placeholderTextColor={t.text.tertiary}
+                            multiline
+                        />
+                        <Pressable onPress={saveMeaning} style={{ alignSelf: 'flex-end', marginTop: 6 }}>
+                            <Text style={[s.link, { fontWeight: '600' }]}>Lưu</Text>
+                        </Pressable>
+                    </>
+                ) : savedRow?.user_meaning ? (
+                    <Text style={[s.definition, { marginTop: 8 }]}>{savedRow.user_meaning}</Text>
+                ) : (
+                    <Text style={[s.viFail, { marginTop: 6 }]}>Chưa có — flashcard dùng nghĩa từ điển.</Text>
+                )}
+            </View>
+        </>
+    );
+
+    const panels = [viewEn, viewImg, viewVi];
+
+    return (
+        <SafeAreaView style={s.root} edges={['top']}>
+            <View style={s.header}>
+                <IconButton icon={Icons.ArrowLeft} label="Quay lại" onPress={() => router.back()} />
+                <Text style={s.headQuery}>{result.query}</Text>
+                <IconButton icon={Icons.Search} label="Tra từ khác" onPress={() => setSearchOpen(true)} />
+                {entry && (
+                    <IconButton
+                        icon={saved ? Icons.BookmarkCheck : Icons.Bookmark}
+                        label={saved ? 'Bỏ lưu' : 'Lưu từ'}
+                        active={saved}
+                        onPress={toggleSave}
+                    />
+                )}
+            </View>
+
+            {/* Thanh view ghim ngay dưới header, KHÔNG nằm dưới khối headword: đặt
+                dưới thì vị trí của nó xê dịch theo từng từ (banner biến thể có/không,
+                headword dài/ngắn). Ở đây thì nó đứng yên một chỗ với mọi từ. */}
+            <View style={s.viewTabs} accessibilityRole="tablist">
+                {VIEWS.map((label, i) => (
+                    <Pressable
+                        key={label}
+                        onPress={() => selectView(i)}
+                        style={[s.viewTab, i === view && s.viewTabOn]}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: i === view }}
+                    >
+                        <Text style={[s.viewTabLabel, i === view && s.viewTabLabelOn]}>{label}</Text>
+                    </Pressable>
+                ))}
+            </View>
+
+            {/* Mỗi view một ScrollView riêng, ẩn bằng display chứ không unmount —
+                nhờ vậy vị trí cuộn và ảnh đã tải của từng view được giữ nguyên khi
+                chuyển qua lại. View chưa vào bao giờ thì chưa nằm trong `visited`
+                nên chưa tồn tại, giữ được tính lazy. */}
+            {VIEWS.map((_, i) => (visited.has(i) ? (
+                <ScrollView
+                    key={i}
+                    style={{ display: i === view ? 'flex' : 'none' }}
+                    contentContainerStyle={{ paddingBottom: 48 }}
+                >
+                    {identity}
+                    {panels[i]}
+                </ScrollView>
+            ) : null))}
+
+            <SearchOverlay visible={searchOpen} onClose={() => setSearchOpen(false)} />
         </SafeAreaView>
     );
 }
@@ -408,6 +523,7 @@ function SenseBlock({ n, sense, fs, onChip, s, t }: {
     return (
         <View style={{ flexDirection: 'row', marginTop: 12 }}>
             <View style={{ width: 22, alignItems: 'center' }}>
+                {/* lineHeight khớp guideword nên chân chữ trùng nhau — xem senseNum trong makeStyles */}
                 <Text style={s.senseNum}>{n}</Text>
                 {sense.cefr ? <View style={[s.cefrDot, { backgroundColor: t.accent.bg }]} /> : null}
             </View>
@@ -415,7 +531,10 @@ function SenseBlock({ n, sense, fs, onChip, s, t }: {
                 {sense.guideword ? <Text style={s.guideword}>{sense.guideword}</Text> : null}
                 <Text style={[s.definition, { fontSize: 15 * fs }]}>{sense.definition}</Text>
                 {(sense.grammar || sense.labels) ? (
-                    <Text style={s.posLine}>{[sense.grammar, sense.labels].filter(Boolean).join(' · ')}</Text>
+                    <View style={[s.row, { marginTop: 4, gap: 6 }]}>
+                        {sense.grammar ? <Text style={s.tagBadge}>{sense.grammar.replace(/^\[|\]$/g, '')}</Text> : null}
+                        {sense.labels ? <Text style={s.tagBadge}>{sense.labels.replace(/^\(|\)$/g, '')}</Text> : null}
+                    </View>
                 ) : null}
                 {shown.map((ex, j) => (
                     <Text key={j} style={s.example}>{ex.text}</Text>
@@ -467,6 +586,17 @@ function makeStyles(t: Semantic) {
             borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border.subtle,
         },
         headQuery: { flex: 1, color: t.text.tertiary, fontSize: 14 },
+        viewTabs: {
+            flexDirection: 'row', gap: space.lg, paddingHorizontal: space.md,
+            borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border.subtle,
+        },
+        viewTab: {
+            paddingVertical: 11, borderBottomWidth: 2, borderBottomColor: 'transparent',
+            marginBottom: -StyleSheet.hairlineWidth, // đè lên đường kẻ dưới để gạch chân liền mạch
+        },
+        viewTabOn: { borderBottomColor: t.accent.bg },
+        viewTabLabel: { fontSize: 14, color: t.text.tertiary },
+        viewTabLabelOn: { color: t.text.link, fontWeight: '600' },
         formOf: {
             flexDirection: 'row', gap: 14,
             paddingHorizontal: space.md, paddingVertical: space.md,
@@ -480,7 +610,10 @@ function makeStyles(t: Semantic) {
             letterSpacing: -0.5,
         },
         hom: { fontSize: 12, color: t.text.tertiary, fontWeight: '600' },
-        posLine: { color: t.text.tertiary, fontSize: 13, marginTop: 2 },
+        tagBadge: {
+            fontSize: 11, color: t.text.secondary, backgroundColor: t.surface.raised,
+            paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, overflow: 'hidden',
+        },
         ipa: { fontSize: 13, color: t.text.secondary, fontFamily: IPA_FONT },
         youglish: { color: t.accent.bg, fontSize: 13 },
         section: { marginTop: space.lg, paddingHorizontal: space.md },
@@ -488,11 +621,23 @@ function makeStyles(t: Semantic) {
         formLabel: { width: 140, fontSize: 13, color: t.text.secondary },
         formWord: { fontSize: 14, fontWeight: '500', flex: 1, color: t.text.primary },
         formIpa: { fontSize: 13, color: t.text.secondary, fontFamily: IPA_FONT },
-        senseNum: { fontWeight: '600', color: t.text.secondary, fontSize: 14, fontVariant: ['tabular-nums'] },
+        /**
+         * `lineHeight` ở đây và ở `guideword` phải BẰNG NHAU. Trước đó số nghĩa
+         * cỡ 14 còn guideword cỡ 11, mỗi cái tự tính hộp dòng riêng rồi cùng canh
+         * mép trên — nên chân chữ lệch nhau. Cho chung một hộp dòng thì chữ tự
+         * canh giữa trong hộp và hai bên trùng nhau, không phải căn tay.
+         * Chỉ 1,5% số từ có guideword, nhưng nhóm đó trung bình 7,5 nghĩa/từ
+         * (phần còn lại: 1,4) — tức lỗi rơi đúng vào những từ dài nhất.
+         */
+        senseNum: {
+            fontWeight: '600', color: t.text.secondary, fontSize: 14,
+            lineHeight: 20, fontVariant: ['tabular-nums'],
+        },
         cefrDot: { width: 6, height: 6, borderRadius: 3, marginTop: 4 },
         guideword: {
             fontSize: 11, color: t.text.tertiary, backgroundColor: t.surface.raised,
             alignSelf: 'flex-start', paddingHorizontal: 6, borderRadius: 4, overflow: 'hidden', marginBottom: 2,
+            lineHeight: 20, // phải khớp senseNum.lineHeight — xem ghi chú ở đó
         },
         definition: { fontSize: 15, lineHeight: 23, color: t.text.primary },
         example: { fontSize: 13, color: t.text.secondary, fontStyle: 'italic', marginTop: 3 },
