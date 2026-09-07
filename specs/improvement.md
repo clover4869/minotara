@@ -60,8 +60,20 @@ Vài mục dưới đây được **xác minh trực tiếp trên `oxford-app.db
 | 19 | P2 | [Feature] Bảng màu app (`theme/tokens.ts`, Porcelain/terracotta) không khớp brand palette thật (`assets/icons/COLORS.md`, teal — lấy từ icon) — cần retheme | Theme / Branding | [x] |
 | 20 | P2 | [Feature] Thiếu công tắc chọn Dark Mode thủ công trong Cài đặt — app chỉ theo hệ thống, không tự override được | FE Cài đặt / Theme | [x] |
 | 21 | P1 | ~~Tap tab nav xong không bấm được gì~~ — làm rõ lại là nút "Bắt đầu" ở Ôn tập bị disable; nguyên nhân thật ở Task 10, không phải crash Task 16 (2 giả thuyết ban đầu đều sai) | FE Ôn tập | [x] |
+| 22 | P2 | [UX] Thanh tab dưới vẫn hiện trong lúc ôn flashcard — chiếm diện tích + tạo lối thoát ngoài ý muốn giữa phiên tập trung | FE Ôn tập / Navigation | [x] |
+| 23 | P3 | [UX] Nút 'X' xoá chip 'Gần đây' có vùng chạm quá nhỏ (~30pt, dưới ngưỡng 44pt) + khoảng cách với chữ quá gần (6pt) — dễ tap nhầm vào từ | FE Tra cứu | [x] |
+| 24 | P3 | [UX] Badge CEFR ở "Từ hôm nay" bị đẩy tách xa headword (2 đầu khối), nền phẳng không có điểm nhấn | FE Tra cứu | [x] |
+| 25 | P3 | [UX] Nhãn ngữ pháp/ngữ cảnh (disapproving, informal…) chỉ là text xám thuần, không có badge phân biệt với phần định nghĩa | FE Word Detail | [x] |
+| 26 | P3 | [UX] "Ghi chú nghĩa của bạn" không có khối nền riêng — không nhất quán với khối "Nghĩa tiếng Việt" ngay dưới (đã có card) | FE Word Detail | [x] |
+| 27 | P3 | [UX] Bộ lọc "Mới nhất/A-Z/CEFR/Đến hạn" ở Từ của tôi chỉ đổi độ đậm chữ khi active — không có affordance rõ là nút bấm được | FE Từ của tôi | [x] |
+| 28 | P2 | [UX] Xoá từ/lịch sử bằng long-press xoá NGAY, không xác nhận, không hoàn tác — rủi ro mất dữ liệu do lỡ tay | FE Từ của tôi + Lịch sử | [x] |
+| 29 | P2 | [Feature] Phase 2 — tab "Ảnh" tìm ảnh minh hoạ qua DuckDuckGo (endpoint không chính thức, đã verify thật) | FE Ảnh (mới) + Services | [x] |
+| 30 | P2 | [Feature] Phase 2 — thay thuật toán Leitner box thủ công bằng FSRS thật (`ts-fsrs`) cho lịch ôn tập | SRS / `services/srs.ts` | [x] |
+| 31 | P3 | [Feature] Thanh tab đổi sang phong cách "glass" nổi (theo ảnh mẫu user cung cấp), giữ nguyên 5 tab hiện có, đổi màu theo brand teal | FE Navigation | [x] |
 
 \* Task 13 và 17: code đã sửa xong, còn 1 phần đất/data-side chưa làm được trong phiên này (không có source data / thiết bị) — xem Report sau code của từng task.
+\* Task 28: làm (a) trước rồi nâng cấp lên (b) — swipe-to-delete + toast hoàn tác — ngay trong phiên này; (a)'s Alert xác nhận không còn tồn tại trong code, xem Report sau code.
+\* Task 31: đổi cơ chế điều hướng tab từ `NativeTabs` sang `expo-router/ui` headless tabs (`Tabs`/`TabList`/`TabTrigger`/`TabSlot`) — bắt buộc vì bar tuỳ biến hoàn toàn không thể vẽ trên `NativeTabs`; đánh đổi đã nêu rõ với user trước khi làm, xem Report sau code.
 
 **Thứ tự đề nghị:** 1 → 2 → 4 → 7 → 16 (4, 7, 16 cùng vùng `db/open.ts`, nên làm cùng nhau) → 17 → 18 (17 phải xong trước 18, xem Phụ thuộc) → 10 → 12 (cùng màn bắt đầu Ôn tập, làm cùng nhau) → 13 → 3 → 5 → 6 → 15 (làm cùng lúc với 6, cùng đụng `import.tsx`) → 11 → 14 → 8 → 9.
 **Phụ thuộc:**
@@ -71,7 +83,7 @@ Vài mục dưới đây được **xác minh trực tiếp trên `oxford-app.db
 - Task 6 và 15 nên làm **cùng lúc** — cùng đụng `import.tsx`/`import-parser.ts`.
 - Task 1 và 8 cùng nằm trong `review.tsx` nhưng nguyên nhân độc lập, có thể tách người làm.
 - Các task còn lại (2, 3, 5, 9, 11, 13, 14) độc lập với nhau.
-- Task 19 mới thêm (chưa làm): nên làm sau khi có câu trả lời cho "Câu hỏi mở" của nó; phần (b) — sửa màu splash — có thể làm ngay, độc lập với các task khác.
+- Task 22-28 (từ báo cáo UX review ngoài, `specs/draf_improment.md`): độc lập với nhau và với các task trên, có thể làm bất kỳ lúc nào. Khuyên làm 28 trước (rủi ro mất dữ liệu, ưu tiên cao hơn nhóm còn lại), rồi 22 (đụng kiến trúc điều hướng, nên làm sớm trước khi chồng thêm polish khác lên `review.tsx`), còn 23-27 là polish nhỏ độc lập, làm theo thứ tự nào cũng được.
 
 ---
 
@@ -989,3 +1001,542 @@ Sau khi Task 16 fix (bổ sung `globalThis` + WAL) thật sự có hiệu lực,
 
 ### Report sau code
 **Cập nhật: cả 2 giả thuyết trong task này đều SAI.** User làm rõ lại: không phải "mọi tab", mà cụ thể là màn Ôn tập — nút "Bắt đầu" không bấm được (đúng ra là bị `disabled`, không phải bị che bởi overlay lỗi nào). Nguyên nhân thật là 1 regression cụ thể ở Task 10 (`dueCount` lỡ loại luôn thẻ mới, xem update trong Task 10) — không liên quan gì đến crash Task 16 hay `NativeTabs`. Để task này lại làm bằng chứng cho thấy lúc chưa có đủ thông tin (mô tả "tab" quá chung chung), giả thuyết dựa trên suy luận gián tiếp (dù có vẻ hợp lý) vẫn có thể sai hoàn toàn — bug thật nằm ở chỗ không ngờ tới nhất. Xem Task 10's "Update (2026-08-20)" để biết fix thật.
+
+---
+
+## Nguồn Task 22-28: review `specs/draf_improment.md`
+
+User đưa 1 báo cáo UX audit từ nguồn ngoài (`specs/draf_improment.md`) và xin ý kiến. Đã đối chiếu TỪNG claim với code thật trước khi đưa vào đây — không copy nguyên văn báo cáo:
+- **Bỏ hẳn 1 claim sai**: mục 2.1 của báo cáo nói có "nút bánh răng nổi" (floating settings FAB) đè lên nội dung ở nhiều màn — đã `grep` toàn bộ `src/`, chỉ có DUY NHẤT 1 chỗ dùng icon gear, chính là icon của tab Cài đặt trong `(tabs)/_layout.tsx:29` (bình thường, đúng vị trí). Không có FAB nào trong code. Khả năng cao báo cáo đó phân tích nhầm chrome dev-tool của Expo (nút menu debug) trong ảnh chụp màn hình thành lỗi UI thật — **không tạo task cho claim này**.
+- **Bỏ các claim đã lỗi thời** (đã tự sửa ở Round 1 trước khi đọc báo cáo này): biểu đồ box ở màn bắt đầu Ôn tập (mục 6.1) đã là bar chart cao thấp thật (không phải 5 chấm đều), progress bar đã dày 6pt (mục 6.2), haptics đã có sẵn (`Vibration.vibrate`), counter "X/Y" đã hiển thị — báo cáo mô tả những thứ này như đang thiếu, nhưng code thật đã có.
+- **7 claim còn lại đối chiếu đúng với code** → thành Task 22-28 dưới đây.
+- **Ghi chú riêng, chưa thành task**: mục 5.2 (thanh Leitner 5 ô) là 1 lựa chọn thiết kế có chủ đích (`LeitnerLadder` trong `dict-ui.tsx` có comment "Signature: ... không phải rainbow pills") — không phải sơ suất, cân nhắc kỹ trước khi đổi. Mục 6.3 (FSRS, undo, cloze highlight, interval preview trên nút chấm, vuốt để chấm điểm) — FSRS đã được `specs/init.md` ghi sẵn là hạng mục phase 2, còn 4 ý còn lại (undo/interval-preview/cloze-highlight/swipe-to-grade) là ý tưởng hợp lý, xác nhận thật là **chưa** có trong code, nhưng chưa được đưa vào task theo yêu cầu ban đầu — nói mình biết nếu muốn thêm.
+
+---
+
+## Task 22 — [UX] Thanh tab dưới vẫn hiện trong lúc ôn flashcard
+
+### Mô tả
+Phiên ôn tập (`phase === 'card'` trong `ReviewScreen`, [src/app/(tabs)/review.tsx](src/app/(tabs)/review.tsx)) không phải 1 route/modal riêng — nó chỉ là 1 state đổi bên trong route tab `Ôn tập`. `NativeTabs` ([src/app/(tabs)/_layout.tsx](src/app/(tabs)/_layout.tsx)) hiện thanh tab cho MỌI screen con của nó, không có state nội bộ nào của 1 tab khiến nó tự ẩn. Kết quả: trong lúc đang lật thẻ/chấm điểm, thanh tab 4 nút (Tra cứu/Từ của tôi/Ôn tập/Cài đặt) vẫn hiện nguyên phía dưới.
+
+### Expect
+Trong lúc ôn (phase `card`, có thể cả `done`), thanh tab dưới phải ẩn — chỉ còn nút ✕ ở `topBar` (đã có, gọi `exitEarly()`) là lối thoát chủ đích; nhường tối đa diện tích cho nội dung mặt sau thẻ (định nghĩa dài, ví dụ, bảng biến thể).
+
+### Tái hiện
+1. Vào tab Ôn tập, bấm "Bắt đầu".
+2. Quan sát: thanh tab 4 nút vẫn hiện dưới cùng suốt phiên ôn.
+
+### Nguyên nhân gốc
+- Luồng ôn tập được implement như 1 state (`phase`) trong route tab, không tách thành route/modal riêng — nên không có cách "ẩn tab bar theo điều kiện" tự nhiên trong kiến trúc hiện tại.
+
+### Solution — 2 hướng, chọn 1
+
+**a. Chuyển phase `card`/`done` ra 1 route riêng ngoài tabs, mở bằng `router.push` với `presentation: 'fullScreenModal'` (khuyên dùng)**
+- Tạo route mới (vd. `src/app/review-session.tsx`) chứa đúng phần UI của phase `card`/`done` hiện tại; `(tabs)/review.tsx` giữ lại phase `start`, khi bấm "Bắt đầu" thì `router.push('/review-session', { params: {...} })` thay vì đổi `phase` nội bộ.
+- Thêm `<Stack.Screen name="review-session" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />` vào `_layout.tsx`, giống cách `import` đã dùng `presentation: 'modal'`.
+- Pros: Đúng mẫu chuẩn của Expo Router (Stack chồng lên Tabs tự động ẩn tab bar) — không phụ thuộc vào việc `expo-router/unstable-native-tabs` có hỗ trợ ẩn động hay không (API còn "unstable", rủi ro nếu dựa vào 1 prop chưa ổn định).
+- Cons: Cần truyền state phiên ôn (queue, card, mode…) qua route params hoặc 1 store tạm — object `SessionQueue` không serialize được qua route params thông thường, nên cần giữ nó ở 1 nơi ngoài route (module-level ref hoặc context) rồi route mới chỉ đọc lại, không đi qua `params`. Đổi cấu trúc rộng hơn phương án (b).
+
+**b. Tìm API ẩn tab bar theo điều kiện ngay trong `NativeTabs`**
+- Kiểm tra tài liệu/source `expo-router/unstable-native-tabs` xem có prop kiểu `hidden`/`tabBarStyle` điều khiển được theo state của tab con không.
+- Pros: Không cần tách route, giữ nguyên cấu trúc `review.tsx`.
+- Cons: API đang đánh dấu "unstable" — chưa chắc có hỗ trợ; nếu không có, phải tự chế bằng cách ẩn/che tạm (hacky, dễ vỡ khi update `expo-router`).
+
+**→ Khuyên dùng (a)** — ít rủi ro phụ thuộc vào API chưa ổn định, đúng kiến trúc Stack+Tabs chuẩn của Expo Router.
+
+### Test
+- [x] `npx tsc --noEmit` — 0 lỗi. `npx vitest run` — 40/40 pass (logic `SessionQueue`/`srs.ts` không đổi, chỉ chuyển state lên store).
+
+### Verify
+- [x] Thêm store mới `src/stores/review-session.ts` (zustand) giữ toàn bộ state phiên ôn (`queue`, `card`, `flipped`, `mode`, `nextDue`, cache) — trước đó nằm local trong `review.tsx`.
+- [x] `(tabs)/review.tsx` giờ CHỈ còn màn bắt đầu (05-A): due count, biểu đồ box, chọn mode, nút Bắt đầu/Ôn trước hạn — gọi `begin()` của store rồi `router.push('/review-session')`.
+- [x] Route mới `src/app/review-session.tsx` chứa UI phase thẻ (05-B) + kết quả (05-C), đăng ký trong `_layout.tsx` với `presentation: 'fullScreenModal', gestureEnabled: false` — tab bar tự ẩn vì đây là Stack screen nằm ngoài `(tabs)`, không phải vì code tự ẩn tab bar.
+- [x] `(tabs)/review.tsx` đổi `useEffect` mount-once thành `useFocusEffect` để tự làm mới due-count mỗi lần quay lại tab (trước đây phải tự gọi `refreshCounts()` thủ công ở nút "Xong").
+- [ ] Chưa tự tay chạy 1 phiên ôn thật trên device để xác nhận tab bar biến mất mượt mà, animation modal không giật — không có device trong phiên này.
+
+### Report sau code
+Implemented option (a). Split `review.tsx` into the tab-resident start screen and a new `review-session.tsx` pushed as `presentation: 'fullScreenModal'` — this is the standard Expo Router pattern for "full screen flow outside the tab bar", so it doesn't depend on `expo-router/unstable-native-tabs` having any conditional-hide API. Session state (queue/card/flip/mode/cache) moved into a new `useReviewSession` zustand store since it can't cross a route boundary as React state or serializable route params. `exitEarly`/`retryMissed`/`finish` logic preserved as-is, just re-homed. Cache-reset-on-session-end (Task 8) is now simpler and arguably more correct: it clears on the new screen's unmount (which only happens when the session truly ends), replacing the previous tab-blur-based `useFocusEffect` cleanup. `tsc`/`vitest` clean; not yet run on a real device to confirm the modal transition looks right.
+
+---
+
+## Task 23 — [UX] Nút 'X' xoá chip 'Gần đây' có vùng chạm quá nhỏ
+
+### Mô tả
+Chip lịch sử gần đây ([src/app/(tabs)/index.tsx](src/app/(tabs)/index.tsx), style `chip`/`chipText`): khoảng cách giữa chữ và icon X chỉ `gap: 6`; nút X chỉ có `hitSlop={8}` — vùng chạm hiệu quả ước tính ~14 (icon) + 16 (hitSlop 2 bên) = 30pt, dưới ngưỡng khuyến nghị tối thiểu 44×44pt cho touch target, và khoảng cách 6pt dưới ngưỡng an toàn 8-12pt để tránh chạm nhầm sang chữ.
+
+### Expect
+Bấm X xoá được chính xác, không lỡ tay mở lại từ khoá khi ý định là xoá.
+
+### Tái hiện
+1. Có ≥1 mục trong "Gần đây" ở màn Tra cứu.
+2. Bấm gần đúng vị trí X nhưng hơi lệch sang trái → mở lại từ đó thay vì xoá.
+
+### Nguyên nhân gốc
+- `gap`/`hitSlop` hiện tại nhỏ hơn khuyến nghị chuẩn về touch target.
+
+### Solution
+Một hướng sửa rõ ràng:
+- [x] Tăng `gap` trong style `chip` từ 6 lên 10-12.
+- [x] Tăng `hitSlop` của nút X từ 8 lên 12, hoặc đặt `minWidth`/`minHeight: 44` + `alignItems/justifyContent: 'center'` trực tiếp trên `Pressable` thay vì chỉ dựa `hitSlop` (hitSlop mở rộng vùng chạm nhưng không di chuyển các item lân cận, ở khoảng cách nhỏ vẫn có thể chồng lấn vùng chạm của chữ bên cạnh).
+
+### Test
+- [x] `npx tsc --noEmit` — 0 lỗi.
+
+### Verify
+- [x] `src/app/(tabs)/index.tsx`: `chip.gap` 6→10; nút X `hitSlop` 8→15 (14pt icon + 30pt hitslop ≈ 44pt tổng, đúng ngưỡng khuyến nghị). Giữ nguyên kích thước hiển thị của icon (không phóng to icon) — chỉ mở rộng vùng chạm vô hình, tránh làm chip trông to bất thường.
+
+### Report sau code
+Implemented the single recommended fix — bumped `chip`'s `gap` and the delete button's `hitSlop`. Kept it to `hitSlop` rather than literal `minWidth/minHeight: 44` on the icon itself, since a 44pt visible box would make the compact pill chip look oversized; `hitSlop` gets an equivalent effective touch target without changing the chip's visual size. `tsc` clean; not measured on a real device/simulator.
+
+---
+
+## Task 24 — [UX] Badge CEFR ở "Từ hôm nay" tách xa headword
+
+### Mô tả
+Khối "Từ hôm nay" ([src/app/(tabs)/index.tsx](src/app/(tabs)/index.tsx), style `wotd`) dùng `justifyContent: 'space-between'`, đẩy `CefrBadge` ra sát mép phải, tách xa hẳn khỏi headword ở bên trái — đứt liên kết thị giác giữa từ và cấp độ khó của nó. Nền khối cũng chỉ là `t.surface.raised` phẳng, không có điểm nhấn nào phân biệt với các khối khác trên màn.
+
+### Expect
+Badge CEFR nằm ngay sát bên phải headword (cùng nhóm thị giác); khối "Từ hôm nay" có điểm nhấn thị giác riêng để nổi bật hơn phần còn lại của màn.
+
+### Tái hiện
+1. Mở tab Tra cứu, xem khối "Từ hôm nay" khi ô tìm kiếm trống.
+2. Badge CEFR (vd "B2") nằm hẳn bên phải khối, cách xa headword.
+
+### Nguyên nhân gốc
+- Layout dùng `space-between` đẩy 2 nhóm ra 2 đầu, đúng cho layout "trái/phải" thông thường nhưng sai cho ý đồ "badge đi kèm ngay sau từ".
+
+### Solution
+Một hướng sửa rõ ràng:
+- [x] Đổi layout: badge CEFR đặt ngay trong `<View>` chứa headword (cùng `flexDirection: 'row', alignItems: 'baseline', gap: 6`), bỏ `justifyContent: 'space-between'` ở mức ngoài.
+- [x] (Tuỳ chọn) Thêm gradient nhẹ dùng dải teal brand cho nền khối — đã cài `expo-linear-gradient` và implement.
+
+### Test
+- [x] `npx tsc --noEmit` — 0 lỗi.
+
+### Verify
+- [x] `src/app/(tabs)/index.tsx`: badge CEFR chuyển vào cùng row với headword (`wotdHeadRow`, `gap: 8`), pos hiện ở dòng riêng bên dưới thay vì bị đẩy lệch.
+- [x] Nền khối đổi từ `t.surface.raised` phẳng sang `<LinearGradient colors={[t.accent.tint, t.surface.raised]}>` (chéo trên-trái → dưới-phải) — tint dùng luôn token theme hiện có nên tự đổi đúng theo Dark Mode, không cần thêm token gradient riêng. Thêm `overflow: 'hidden'` vào style `wotd` để gradient không tràn ra ngoài góc bo tròn trên Android.
+
+### Report sau code
+Implemented both parts. `npx expo install expo-linear-gradient` (SDK-matched version). Badge repositioned next to the headword; background is now a subtle diagonal gradient from `accent.tint` to `surface.raised` — reusing existing semantic tokens rather than inventing new gradient-specific ones, so it stays correct in both themes automatically. `tsc` clean; not visually verified on-device.
+
+---
+
+## Task 25 — [UX] Nhãn ngữ pháp/ngữ cảnh chỉ là text xám, không có badge
+
+### Mô tả
+Ở `SenseBlock` ([src/app/word/[q].tsx](src/app/word/[q].tsx)), dòng `[sense.grammar, sense.labels].filter(Boolean).join(' · ')` render bằng style `posLine` (`color: t.text.tertiary`) — text xám thuần, không có khối nền/viền tách biệt với phần định nghĩa chính, khó phân biệt "nhãn phân loại" (disapproving, informal…) với nội dung nghĩa.
+
+### Expect
+Mỗi nhãn ngữ pháp/ngữ cảnh hiện dưới dạng badge nhỏ (nền nhạt), tách biệt rõ khỏi câu định nghĩa.
+
+### Tái hiện
+1. Mở 1 từ có `grammar`/`labels` (vd từ có nhãn "informal"/"disapproving" trong dữ liệu Oxford).
+2. Nhãn hiện lẫn vào dòng text xám ngay dưới định nghĩa, không có viền/nền phân biệt.
+
+### Nguyên nhân gốc
+- Chưa bọc nhãn vào component badge — hiện tái dùng style text thường (`posLine`) cho cả POS chính (vd "verb") và các nhãn phụ.
+
+### Solution
+Một hướng sửa, nhưng cần kiểm tra data thật trước khi implement:
+- [x] **Kiểm tra trước**: đã query trực tiếp `oxford-app.db` thật — `grammar` luôn dạng `[...]` (vd `[uncountable, plural]`, `[transitive]`), `labels` luôn dạng `(...)` (vd `(British English)`, `(old use or formal)`) — mỗi field là **1 khối duy nhất** (kể cả khi có dấu phẩy bên trong, đó vẫn là 1 ghi chú ngữ pháp gộp, không phải nhiều nhãn rời), nên chỉ cần đúng 2 badge/sense (1 cho `grammar`, 1 cho `labels`), không cần tách theo dấu phẩy.
+- [x] Bọc mỗi nhãn vào 1 badge nhỏ, nền `t.surface.raised`, bo góc nhỏ. Bỏ luôn dấu ngoặc `[]`/`()` bao quanh khi hiện trong badge — badge tự làm nhiệm vụ phân tách thị giác nên giữ ngoặc là thừa.
+
+### Test
+- [x] `npx tsc --noEmit` — 0 lỗi.
+
+### Verify
+- [x] `SenseBlock` ([src/app/word/[q].tsx](src/app/word/[q].tsx)): `sense.grammar`/`sense.labels` giờ render thành 2 badge riêng (`tagBadge` style) thay vì 1 dòng text xám gộp chung bằng `·`.
+
+### Report sau code
+Verified the data shape against the real `oxford-app.db` first (queried `entries.data` directly) before implementing, per the task's own note — confirms 2 badges per sense is correct, no comma-splitting needed. `tsc` clean.
+
+---
+
+## Task 26 — [UX] "Ghi chú nghĩa của bạn" không có khối nền riêng
+
+### Mô tả
+Trong `word/[q].tsx`, khối "Ghi chú nghĩa của bạn" bọc trong `s.section` (chỉ có `marginTop`/`paddingHorizontal`, không có `backgroundColor`/`borderRadius`) — hoà lẫn vào dòng chảy chung. Ngay bên dưới, khối "Nghĩa tiếng Việt" LẠI có card riêng (`backgroundColor: t.surface.raised, borderRadius: radius.lg, padding: space.md`) — 2 khối nội dung "phụ, không phải từ điển gốc" cạnh nhau nhưng style không nhất quán.
+
+### Expect
+"Ghi chú nghĩa của bạn" có khối nền riêng giống "Nghĩa tiếng Việt" ngay dưới, để nhấn mạnh đây là nội dung do người dùng tự thêm; nút "Sửa" có icon bút chì đi kèm cho rõ affordance.
+
+### Tái hiện
+1. Mở 1 từ đã lưu, xem khối "Ghi chú nghĩa của bạn" — không có nền/viền, khối "Nghĩa tiếng Việt" ngay dưới thì có.
+
+### Nguyên nhân gốc
+- 2 khối được viết ở 2 thời điểm khác nhau, không soi lại nhau về style.
+
+### Solution
+Một hướng sửa rõ ràng:
+- [x] Đổi style bọc khối này giống khối "Nghĩa tiếng Việt": `backgroundColor: t.surface.raised, borderRadius: radius.lg, padding: space.md, marginHorizontal: space.md`.
+- [x] Thêm icon bút chì cạnh nút "Sửa" — thêm `SquarePen` vào `Icons`/import Lucide trong `dict-ui.tsx`.
+
+### Test
+- [x] `npx tsc --noEmit` — 0 lỗi.
+
+### Verify
+- [x] "Ghi chú nghĩa của bạn" ([src/app/word/[q].tsx](src/app/word/[q].tsx)) giờ dùng đúng style card giống "Nghĩa tiếng Việt" ngay dưới nó; nút "Sửa" có icon `SquarePen` đi kèm (ẩn icon khi đang ở trạng thái "Huỷ" để tránh icon bút chì cạnh chữ "Huỷ" gây hiểu nhầm).
+
+### Report sau code
+Implemented the single recommended fix — reused the exact inline card style the Vietnamese-meaning block already uses (rather than a new named style) for visual consistency, and added `SquarePen` to `dict-ui.tsx`'s shared `Icons` set. `tsc` clean.
+
+---
+
+## Task 27 — [UX] Bộ lọc ở "Từ của tôi" thiếu visual affordance
+
+### Mô tả
+`ORDERS` filter row ([src/app/(tabs)/my-words.tsx](src/app/(tabs)/my-words.tsx), style `sortItem`/`sortOn`) chỉ đổi `color`/`fontWeight` khi active, không có nền/viền/underline — khó nhận ra đây là các nút bấm được để đổi cách sắp xếp.
+
+### Expect
+Trạng thái active có tín hiệu thị giác rõ ràng hơn chữ đậm đơn thuần (nền pill hoặc underline).
+
+### Tái hiện
+1. Mở tab "Từ của tôi", nhìn dòng "Mới nhất / A-Z / CEFR / Đến hạn".
+2. Không rõ ngay đây là các lựa chọn bấm được, hay chỉ là nhãn tĩnh.
+
+### Nguyên nhân gốc
+- Style active chỉ đổi `fontWeight`/`color`, thiếu 1 tín hiệu hình khối.
+
+### Solution
+Một hướng sửa rõ ràng:
+- [x] Đổi `sortOn` thêm `backgroundColor: t.accent.tint, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full` (dạng pill nhạt) thay vì chỉ đổi màu chữ — tái dùng đúng tinh thần `accent.tint` đã dùng ở banner form-of/chip trong `word/[q].tsx`.
+
+### Test
+- [x] `npx tsc --noEmit` — 0 lỗi.
+
+### Verify
+- [x] `my-words.tsx`: mỗi lựa chọn sort giờ là 1 `Pressable` riêng có pill nền (`sortPill`/`sortPillOn`) thay vì chỉ 1 `Text` đổi màu; giảm `sortRow.gap` từ 18 xuống 8 vì pill đã tự tạo khoảng cách thị giác.
+
+### Report sau code
+Implemented the single recommended fix — active filter now gets an `accent.tint` pill background, not just bolder text. `tsc` clean.
+
+---
+
+## Task 28 — [UX] Xoá bằng long-press không xác nhận, không hoàn tác
+
+### Mô tả
+2 chỗ dùng cùng pattern rủi ro: `my-words.tsx` (`onLongPress={async () => { await unsaveWord(...); reload(); }}`) và `history.tsx` (`onLongPress={async () => { await deleteHistoryRow(...); reload(); }}`) — cả 2 xoá **ngay lập tức** khi long-press, không Alert xác nhận, không cách hoàn tác. So sánh: các hành động xoá "cả loạt" khác trong app (Settings' "Xoá lịch sử tra cứu", "Xoá tất cả" ở `history.tsx`) ĐỀU có `Alert.alert` xác nhận trước — 2 chỗ xoá-từng-dòng này là ngoại lệ duy nhất không có bước chặn nào.
+
+### Expect
+Xoá 1 dòng (từ đã lưu / lịch sử) phải khó lỡ tay hơn — có xác nhận và/hoặc có đường hoàn tác.
+
+### Tái hiện
+1. Long-press vào 1 dòng ở "Từ của tôi" hoặc "Lịch sử".
+2. Dòng biến mất ngay, không có cách nào lấy lại ngoài lưu/tra lại từ đầu.
+
+### Nguyên nhân gốc
+- 2 chỗ này được viết tắt (`onLongPress` gọi trực tiếp hàm xoá) mà không áp lại pattern `confirm()`/`Alert.alert` đã có sẵn ở những chỗ xoá khác trong cùng app.
+
+### Solution — 2 hướng, có thể làm cả 2 theo thứ tự
+
+**a. Thêm `Alert.alert` xác nhận trước khi xoá (làm ngay, rẻ — khuyên dùng trước)**
+- Tái dùng đúng pattern `confirm()` đã có trong `settings.tsx`: bọc `unsaveWord`/`deleteHistoryRow` trong `Alert.alert('Xoá?', '...', [Huỷ, Xoá])` trước khi gọi.
+- Pros: 1-2 dòng mỗi chỗ, chặn ngay rủi ro xoá nhầm, không cần dependency mới.
+- Cons: Vẫn giữ long-press (không theo chuẩn vuốt-để-xoá hiện đại), thêm 1 bước bấm cho mọi lần xoá (kể cả khi người dùng chắc chắn muốn xoá).
+
+**b. Chuyển sang vuốt để xoá (swipe-to-delete) + toast "Đã xoá · Hoàn tác"**
+- Dự án đã có sẵn `react-native-gesture-handler` (~2.31.1) và `react-native-reanimated` (4.3.1) trong `package.json` — đủ để tự implement 1 `Swipeable` row, không cần thêm dependency.
+- Cần thêm 1 component Toast/Snackbar đơn giản (chưa có sẵn trong app) để hiện "Đã xoá · Hoàn tác" vài giây — xoá thật (DB) có thể trễ lại vài giây (optimistic UI + delay-commit) để nút Hoàn tác có ý nghĩa thật, không chỉ là hoàn tác UI.
+- Pros: Đúng chuẩn tương tác danh sách hiện đại, xoá dòng "Giữ lâu để xoá" thừa, nhanh hơn cho người dùng đã quen thao tác vuốt.
+- Cons: Nhiều việc hơn — thêm 1 component Toast mới, logic delay-commit, test kỹ animation vuốt trên cả 2 nền tảng.
+
+**→ Khuyên dùng: làm (a) trước để chặn rủi ro ngay, (b) là nâng cấp UX sau nếu muốn chuẩn hoá lâu dài.**
+
+### Test
+- [x] `npx tsc --noEmit` — 0 lỗi.
+
+### Verify
+- [x] (a, sau đó thay bằng b) `my-words.tsx`/`history.tsx`: ban đầu làm Alert xác nhận trước khi xoá (`confirmUnsave`/`confirmDeleteRow`) — sau đó **nâng cấp lên (b)** trong cùng phiên làm việc, nên (a)'s Alert-trước-khi-xoá đã bị THAY THẾ, không còn tồn tại trong code (xoá code cũ khi lên (b), không giữ song song 2 cơ chế).
+- [x] (b) Thêm `src/hooks/use-pending-delete.ts` (optimistic remove + commit trễ 4s + `undo()`), `src/components/swipe-to-delete.tsx` (bọc `Swipeable` từ `react-native-gesture-handler`, vuốt trái lộ nút "Xoá" đỏ), `src/components/undo-toast.tsx` (thanh "Đã xoá X · Hoàn tác" neo đáy màn).
+- [x] `my-words.tsx`/`history.tsx`: đổi từ `onLongPress` sang bọc mỗi dòng trong `<SwipeToDelete>`; dòng bị xoá biến mất khỏi list NGAY (lọc theo `pendingItem`) trước khi DB thật sự bị đụng tới; xoá dòng hint "Giữ lâu để xoá" cũ, thêm "Vuốt sang trái để xoá" (my-words) làm gợi ý thao tác mới.
+- [x] Thêm `GestureHandlerRootView` bọc ngoài cùng ở `_layout.tsx` — bắt buộc để `Swipeable` nhận gesture ổn định, đặc biệt trên Android (trước đó app chưa cần tới gesture-handler's pan gestures nên chưa có root view này).
+- [ ] Chưa test thao tác vuốt thật trên device (không có trong phiên này) — cần xác nhận: vuốt mở đúng, tap "Xoá" hoạt động, toast hiện/biến mất đúng lúc, "Hoàn tác" khôi phục đúng dòng.
+
+### Report sau code
+Implemented both (a) and then (b) in the same session — (a) was built first, then immediately superseded by (b) once asked to go further, since an undo-toast pattern makes the upfront confirm dialog redundant friction rather than a complementary safety net; the Alert-based code from (a) no longer exists. Built 3 small reusable pieces (`usePendingDelete`, `SwipeToDelete`, `UndoToast`) rather than one-off logic per screen, since both `my-words.tsx` and `history.tsx` needed identical optimistic-delete-with-undo semantics. Also had to add `GestureHandlerRootView` at the app root — `Swipeable` needs it and nothing in the app required gesture-handler's pan gestures before now. `tsc`/`vitest` clean; swipe gesture itself not exercised on a real device in this session.
+
+---
+
+## Task 29 — [Feature] New "Ảnh" tab — DuckDuckGo-backed image search
+
+### Mô tả
+Phase-2 batch (planned via Plan Mode, see `/home/long.tran3/.claude/plans/structured-roaming-crab.md`). User asked for a 5th tab to search/view images for a word — a well-established visual-vocabulary aid. DuckDuckGo has no official public Image Search API; the internal endpoint was reverse-engineered and **verified live** against the real service before writing any code: `GET duckduckgo.com/?q=...` yields a `vqd` token in the HTML, then `GET duckduckgo.com/i.js?...&vqd=...` returns JSON image results (confirmed 93 real results for a test query; DDG image search is itself Bing-sourced under the hood).
+
+### Expect
+A "Ảnh" tab where typing a word shows a grid of image thumbnails; tapping one shows a full-size preview with source attribution and a link out to the original page. Works offline for previously-searched words (cache-first). Fails soft (no crash, no dictionary-blocking) if the endpoint ever breaks.
+
+### Solution implemented
+- [x] `src/services/image-search.ts` — `searchImages(userDb, query, page, fetchImpl?)`, shaped like `services/vi-meaning.ts` (cache-first, 3s timeout, 1 retry, fail-soft, `fetchImpl` injectable for tests). Two-step fetch: HTML page → regex `vqd` token → `i.js` JSON endpoint.
+- [x] `src/db/user.ts` — new migration (`image_cache(query, page, json, fetched_at)`), `getCachedImages`/`cacheImages`/`clearImageCache`.
+- [x] `src/app/(tabs)/images.tsx` — new screen: debounced (300ms) search bar, `FlatList numColumns={3}` grid using `expo-image`'s `<Image>` (self-caching, already a dependency, not previously used live anywhere in the app), tap → in-screen `<Modal>` preview with title + "Nguồn: {domain}" tap-through link. No save/export action by design (in-app reference viewing only, not redistribution).
+- [x] `src/app/(tabs)/_layout.tsx` — registered the tab (after "Ôn tập", before "Cài đặt").
+- [x] `src/app/(tabs)/settings.tsx` — "Xoá cache ảnh" row next to the existing cache-clear rows.
+- [x] `src/components/dict-ui.tsx` — added `Images` to the shared `Icons` set (used for the tab's empty state).
+
+### Test
+- [x] `test/services.test.ts`: 4 new tests for `image-search.ts` — happy path (token → results → cache-hit on second call), missing-token fail-soft-after-retry, results-fetch-throws fail-soft, empty query short-circuits without fetching.
+- [x] `npx vitest run` — 44/44 pass. `npx tsc --noEmit` — 0 lỗi.
+
+### Verify
+- [x] Cache-first contract matches `vi-meaning.ts`'s established pattern exactly (same shape of `{ results/meanings, fromCache, failed }`).
+- [x] **Đã chạy thật trên emulator** (Android 16 / API 36 — chi tiết ở Task 32): endpoint DDG thật trả kết quả, lưới ảnh + modal preview render đúng, dòng "Nguồn:" hiện domain thật. Lưu ý: UI đã **chuyển khỏi tab riêng vào màn chi tiết từ** ở Task 32, nên "màn tab Ảnh" mô tả ở trên không còn tồn tại.
+
+### Report sau code
+Implemented per the approved plan. The DuckDuckGo integration risk (undocumented endpoint, no SLA) is stated explicitly in code comments, not hidden — if it breaks in the future, the fail-soft contract means the tab shows "Cần mạng để tìm ảnh" rather than crashing, and nothing else in the app is affected. `tsc`/`vitest` clean.
+
+## Task 30 — [Feature] Thay thuật toán Leitner box thủ công bằng FSRS thật cho lịch ôn tập
+
+### Mô tả
+Phase-2 batch (cùng plan với Task 29, xem `/home/long.tran3/.claude/plans/structured-roaming-crab.md`). Trước đó `services/srs.ts` tự tính khoảng cách ôn tập bằng bảng 5 "hộp" Leitner cứng (1/2/4/7/14 ngày) — không thích nghi theo độ khó thật của từng từ. **FSRS** (Free Spaced Repetition Scheduler) là thuật toán hiện đại hơn Anki/SM-2, tính khoảng ôn dựa trên `stability`/`difficulty` ước lượng riêng cho từng thẻ. Package `ts-fsrs@5.4.1` đã verify qua `npm view` + cài thật + đọc `.d.ts` thật trong `node_modules` (không đoán API) — 0 runtime dependency, an toàn cho React Native.
+
+### Expect
+Lịch ôn tập thích nghi theo từng từ (từ dễ giãn cách nhanh hơn, từ khó giữ gần) thay vì cứng theo 5 mốc ngày cố định. Giữ nguyên UI 2 nút "Chưa nhớ"/"Đã nhớ" (spec chủ động tránh "ease hell" của UI 4 nút) và giữ nguyên toàn bộ cơ chế trong-phiên hiện có (learning steps, reinforcement pass, escape hatch của `SessionQueue`) — không rewrite những phần đã test kỹ và không có bug.
+
+### Solution implemented
+- [x] `npm install ts-fsrs@5.4.1`.
+- [x] `src/db/user.ts` — migration v3 thêm 8 cột nullable vào `srs_state` (`stability`, `difficulty`, `fsrs_state`, `reps`, `lapses`, `scheduled_days`, `learning_steps`, `last_review`) qua các câu `ALTER TABLE` riêng (SQLite không cho multi-column ALTER 1 câu). Cột `box`/`streak`/`last_result` giữ nguyên — `box` trở thành bucket hiển thị (cosmetic) suy ra từ `stability`, `streak`/`last_result` vẫn phục vụ `SessionQueue`.
+- [x] `src/services/srs.ts` — rewrite `grade()`: gọi `fsrs({ enable_short_term: false, enable_fuzz: false }).next(card, now, rating)` thay vì bảng Leitner cứng; `"Chưa nhớ"` → `Rating.Again`, `"Đã nhớ"` → `Rating.Good`. Thêm `toFsrsCard`/`fromFsrsCard` chuyển đổi giữa `SrsState` (lưu DB) và `Card` (FSRS). Thêm `boxFromStability()` — bucket hiển thị dùng lại đúng mốc ngày cũ (1/2/4/7/14) nên `LeitnerLadder` UI không cần đổi gì. Thêm `previewIntervals(s, now)` dùng `scheduler.repeat()` — xem trước khoảng ôn cho cả 2 lựa chọn mà không commit, sẵn cho UI xem-trước-khoảng-ôn sau này. Xoá `nextBox`/`BOX_INTERVAL_DAYS` (chết, không còn ai dùng).
+- [x] Giữ lớp fuzz ±15% cũ (dùng `rng()` injected) áp lên khoảng FSRS tính ra, **thay vì** dùng `enable_fuzz` nội bộ của FSRS — vì fuzz nội bộ của FSRS không nhận RNG injected nên sẽ phá tính pure/deterministic của `grade()` mà test bộ đang dựa vào.
+- [x] `enable_short_term: false` — FSRS có learning-steps riêng theo phút, nếu bật sẽ chồng chéo với learning-steps trong-phiên của `SessionQueue` (đã test kỹ, không đổi). `SessionQueue`, `buildSession`, `buildAheadSession`, `dueBoxCounts`, `boxCounts`, `isNewCard`, `maskHeadword` — **không đổi gì** (vẫn gọi `grade()` với đúng chữ ký cũ).
+- [x] Thẻ cũ (đã ôn theo Leitner, `stability IS NULL`) được coi là thẻ FSRS mới lần đầu đọc — không cố suy ngược tham số FSRS từ lịch sử box, giữ nguyên `due_at` hiện có làm hạn ôn kế tiếp; FSRS tự điều chỉnh đúng sau vài lần ôn thật.
+
+### Test
+- [x] `test/services.test.ts`: xoá 3 test cũ pin cứng công thức Leitner (không còn đúng với FSRS), thay bằng test hành vi: `boxFromStability` bucket đúng mốc ngày; `grade()` đúng hướng đi tới trong tương lai + tăng streak; **khoảng ôn tăng dần khi trả lời đúng liên tiếp** (chứng minh spaced-repetition thật, không so số cứng vì hằng số nội bộ FSRS không phải của mình); trả lời sai reset streak + khoảng ôn ngắn hơn trả lời đúng; fuzz ±15% so với khoảng FSRS gốc chưa fuzz (lấy từ `previewIntervals`).
+- [x] `npx vitest run` — 46/46 pass. `npx tsc --noEmit` — 0 lỗi.
+
+### Verify
+- [x] Field/type trong `toFsrsCard`/`fromFsrsCard` đối chiếu trực tiếp với `Card` interface thật trong `node_modules/ts-fsrs/dist/index.d.ts` (không đoán field name) — khớp 100%.
+- [x] `enable_short_term`/`enable_fuzz` xác nhận là field thật của `FSRSParameters` trong cùng file `.d.ts`.
+- [ ] Chưa test trên device thật — chưa thấy trực quan khoảng ôn thực tế thay đổi thế nào so với Leitner cũ qua nhiều phiên ôn liên tiếp (cần vài ngày dùng thật để quan sát).
+
+### Report sau code
+Implemented per plan. Rủi ro lớn nhất (tích hợp sai với `SessionQueue` đang hoạt động tốt) được né bằng cách chỉ thay ruột `grade()`, giữ nguyên 100% API/behavior xung quanh nó — 41 test cũ liên quan `SessionQueue` (learning steps, reinforcement, escape hatch...) pass nguyên không cần sửa, chỉ 3 test pin cứng công thức Leitner cần viết lại theo hướng hành vi. `tsc`/`vitest` clean.
+
+## Task 31 — [Feature] Thanh tab đổi sang phong cách "glass" nổi theo ảnh mẫu, đổi màu theo brand teal
+
+### Mô tả
+User gửi ảnh chụp một thanh tab bar dạng pill nổi, nền tối kính mờ (glass), có glow màu ở icon đang active, và hỏi "can I use these style tab bar?". Phát hiện repo đã có sẵn `src/components/glass-tab-bar.tsx` — code đầy đủ đúng phong cách trong ảnh nhưng **là dead code, chưa từng được wire vào app** (app đang chạy `NativeTabs`), và thiếu cả 3 dependency nó cần (`expo-blur`, `@expo/vector-icons`, `@react-navigation/bottom-tabs` — không cái nào có trong `package.json`/`node_modules`). Màu sắc cũng hardcode xanh dương chung chung (`#5B8CFF`), không theo brand teal đã retheme ở Task 19.
+
+### Expect
+Thanh tab bar dạng pill nổi, kính mờ, glow teal theo đúng brand, giữ nguyên đủ 5 tab hiện có (Tra cứu/Từ của tôi/Ôn tập/Ảnh/Cài đặt) và hành vi điều hướng không đổi.
+
+### Nguyên nhân gốc (tại sao không "chỉ wire vào là xong")
+`glass-tab-bar.tsx` được viết theo API `tabBar` render-prop kiểu React Navigation cũ. Kiểm tra trực tiếp `node_modules/expo-router` (bản 56.2.19 đang cài, đúng như `AGENTS.md` yêu cầu — luôn đọc doc/API bản đang cài trước khi code) cho thấy **`Tabs` của expo-router hiện tại không còn nhận prop `tabBar` đó nữa** — expo-router tự vendor logic tab riêng, không phụ thuộc `@react-navigation/bottom-tabs` như một package thật. Cách hiện hành (xác nhận qua doc chính thức + type thật trong `.d.ts`) là bộ headless `expo-router/ui`: `<Tabs><TabSlot/><TabList><TabTrigger .../></TabList>{customBar}</Tabs>`, mỗi tab tự là 1 `<TabTrigger asChild>` bọc component riêng (nhận `isFocused`/`onPress`/`onLongPress` qua props).
+
+### Solution implemented
+- [x] Đã hỏi ý kiến user trước khi đổi cơ chế điều hướng (tradeoff: mất native blur/long-press-menu của `NativeTabs`) — user xác nhận muốn theo đúng phong cách ảnh mẫu.
+- [x] `npx expo install expo-blur` — cài đúng bản khớp SDK 56. **Không** cài `@expo/vector-icons` hay `@react-navigation/bottom-tabs` — không cần thật (xem bên dưới).
+- [x] `src/components/glass-tab-bar.tsx` — viết lại hoàn toàn: dùng icon `lucide-react-native` có sẵn (`Icons.Search/Bookmark/Layers/Images/Settings` từ `dict-ui.tsx`, khớp 5 tab hiện có) thay vì cài thêm `@expo/vector-icons` riêng chỉ cho 1 component; mỗi tab là `<TabTrigger asChild><TabItem/></TabTrigger>`; màu ACTIVE/lamp-glow/top-streak đổi từ xanh dương generic sang thang teal của brand (`theme/tokens.ts`). Bỏ hiệu ứng `textShadow` glow trên icon (Ionicons cũ là text-glyph nên nhận `textShadow*`; lucide là SVG nên không hợp lệ kiểu — TypeScript báo lỗi ngay khi build) — vẫn giữ đủ 2/3 lớp glow còn lại (lamp + streak) nên hiệu ứng nổi không mất.
+- [x] **Update**: ban đầu pill cố định tối/kính ở cả 2 theme (giống đúng ảnh mẫu). User xem code, yêu cầu thêm bản light mode cho bộ màu `ACTIVE`/`INACTIVE`/`PILL`. Đổi sang bảng `GLASS: Record<ColorMode, {...}>` chọn theo `useEffectiveColorScheme()`: dark giữ nguyên như cũ (`primitive.accent[400]` — pop trên nền tối); light dùng pill kính trắng `rgba(255,255,255,0.78)`, chữ/icon active `primitive.accent[600]` (đúng token `accentText` trong COLORS.md, vốn được định nghĩa riêng cho tương phản trên nền sáng), viền/streak/lamp đổi tương ứng. `BlurView`'s `tint` cũng đổi theo (`'dark'`/`'light'`, verify đúng giá trị thật qua `BlurTint` trong `.d.ts`) thay vì luôn `'dark'`.
+- [x] `src/app/(tabs)/_layout.tsx` — đổi từ `NativeTabs` sang `Tabs/TabList/TabTrigger/TabSlot` của `expo-router/ui`, `TabList` ẩn (`display:none`, chỉ khai báo route), `<GlassTabBar/>` render UI thật.
+- [x] Vì bar mới là `position:absolute` (khác `NativeTabs` chiếm chỗ layout thật), mọi màn tab phải tự chừa khoảng trống đáy — export `TAB_BAR_HEIGHT` dùng lại y hệt code gốc của `glass-tab-bar.tsx`. Đã thêm `paddingBottom: TAB_BAR_HEIGHT` vào: `index.tsx` (2 nhánh — FlatList gợi ý + View tĩnh khi chưa gõ), `my-words.tsx` (FlatList), `images.tsx` (FlatList lưới ảnh), `settings.tsx` (ScrollView). `review.tsx` không cần (nội dung luôn `justifyContent:'center'`, không chạm đáy).
+- [x] `src/components/undo-toast.tsx` — toast "Hoàn tác" vốn `position:absolute, bottom:16` sẽ bị bar mới che khuất ở `my-words.tsx`; thêm prop `bottomOffset` (mặc định 16, giữ nguyên hành vi ở `history.tsx` — màn không có bar nổi), `my-words.tsx` truyền `TAB_BAR_HEIGHT + 8`.
+
+### Test
+- [x] `npx tsc --noEmit` — 0 lỗi (bắt đúng lỗi kiểu `textShadow` trên icon SVG trước khi chạy thử, không phải đoán).
+- [x] `npx vitest run` — 46/46 pass (không có test nào đụng tab bar — thay đổi thuần UI/navigation).
+
+### Verify
+- [x] Xác nhận `@react-navigation/bottom-tabs` **không cần cài** — `expo-router/ui` không `require()` package đó ở runtime (tự vendor trong `expo-router/build/react-navigation/*`), chỉ verify bằng cách grep thật trong `node_modules`, không đoán.
+- [x] API `TabTrigger`/`TabList`/`TabSlot`/`Tabs` đối chiếu trực tiếp `.d.ts` thật + doc chính thức `docs.expo.dev` bản đang cài — không suy đoán từ bản doc khác.
+- [x] `app-tabs.tsx` (1 file dead code khác, cũng dùng `NativeTabs`, chỉ có 2/5 tab, không ai import) — xác nhận không đụng tới, không phải phạm vi task này.
+- [x] **Đã xem thật trên emulator** (Android 16 / API 36, light mode): pill nổi render đúng, lamp glow teal sau icon tab active, streak sáng viền trên, 4 tab (sau khi Task 32 gỡ tab "Ảnh") giãn đều không vỡ layout. Nội dung màn Tra cứu không bị bar che.
+- [ ] **Còn lại**: emulator chạy `-gpu swiftshader_indirect` (render phần mềm) nên độ mờ thật của `BlurView` và độ mượt của glow animation **chưa** kết luận được — hai thứ này phụ thuộc GPU, phải xem trên máy thật. iOS cũng chưa chạy.
+
+### Report sau code
+Đây là đổi **cơ chế điều hướng tab** (không chỉ đổi giao diện) — từ `NativeTabs` sang `expo-router/ui` headless — vì bar tuỳ biến hoàn toàn kiểu ảnh mẫu không thể vẽ trên `NativeTabs` (chỉ có vài prop native như `blurEffect`, không có cách vẽ pill nổi/glow riêng). Đánh đổi (mất blur/long-press-menu native của iOS) đã nói rõ với user trước khi làm. Rủi ro layout lớn nhất (bar `absolute` đè lên nội dung cuối list) đã được xử lý chủ động ở cả 4 màn có scroll, không chỉ màn được yêu cầu ban đầu. `tsc`/`vitest` clean; phần còn lại (cảm giác thật của blur/glow/animation) cần device thật để chốt.
+
+
+## Task 32 — [UX] Chuyển "Ảnh" từ tab riêng vào màn chi tiết từ
+
+### Mô tả
+Task 29 dựng "Ảnh" thành **tab thứ 4 độc lập** — có ô tìm kiếm riêng, người dùng phải gõ lại từ. User xem thực tế và phản hồi: *"tôi muốn nó hiện trong detail của 1 từ chứ ko phải ở ngoài … khi nhìn ảnh tôi thấy giao diện nó ở ngoài nhìn sai"*. Đúng — ảnh là **công cụ ghi nhớ cho một từ cụ thể**, mà tab độc lập lại tách nó khỏi đúng thứ nó cần đi kèm: từ đang đọc và nghĩa của từ đó. Kết quả là phải gõ lại từ vừa tra, và xem ảnh trong bối cảnh trống rỗng.
+
+### Expect
+Ảnh minh hoạ xuất hiện ngay trong SCR-02 ([src/app/word/[q].tsx](src/app/word/[q].tsx)), gắn với từ đang mở, không cần gõ lại. Tab "Ảnh" biến mất khỏi thanh tab (về lại 4 tab).
+
+### Quyết định thiết kế (đã hỏi user, không tự chọn)
+- **Vị trí**: accordion "Ảnh minh hoạ" thay vì strip luôn hiện — user chọn, để không đẩy phần định nghĩa (nội dung chính của màn) xuống dưới.
+- **Thời điểm tải**: chỉ tải khi user chủ động yêu cầu, không tự tải như `getViMeanings()` — tiết kiệm data và không đụng endpoint DDG (không SLA, dễ rate-limit) cho mọi từ được mở.
+- Hai lựa chọn trên ghép lại thành **một** thao tác chứ không phải hai: `<Accordion>` vốn chỉ render children khi `open` (`{open && children}`), nên **việc mở accordion chính là tín hiệu fetch** — không cần thêm nút "Xem ảnh" bên trong. 1 tap, không phải 2.
+
+### Solution implemented
+- [x] `src/components/word-images.tsx` (mới) — toàn bộ UI ảnh cho một từ: fetch trong `useEffect` khi mount (tức khi accordion mở lần đầu), lưới 3×3 tối đa 9 ảnh, tap → `<Modal>` xem ảnh lớn + "Nguồn: {domain}" bấm được, dòng ghi công DuckDuckGo. Fail-soft y hệt khối "Nghĩa tiếng Việt" ngay phía trên: mất mạng → dòng "Cần mạng để xem ảnh" + "Thử lại", không phải error state chặn cả entry.
+- [x] Lưới dùng `View` + `flexWrap`, **không** `FlatList numColumns` như bản tab cũ — component này nằm trong `ScrollView` của SCR-02, lồng VirtualizedList vào ScrollView làm hỏng scroll và bắn warning.
+- [x] `src/app/word/[q].tsx` — thêm `<Accordion title="Ảnh minh hoạ">` chứa `<WordImages word={imageQuery} />`, đặt đầu nhóm accordion (trên Idioms/Phrasal verbs/Word origin) — dưới toàn bộ phần nghĩa, nhưng vẫn ở nhóm dễ thấy. `imageQuery` dùng đúng thứ tự ưu tiên lemma-first của `getViMeanings()` (`formOf[0].lemma ?? entry.headword ?? query`): tra "ran" thì tìm ảnh cho "run", không phải "ran".
+- [x] Khối ảnh nằm trong nhánh `!isStub` — trang biến thể thuần ("ran" khi chưa có entry riêng) không hiện mục này, đúng như các mục nội dung khác.
+- [x] Xoá `src/app/(tabs)/images.tsx`; gỡ `TabTrigger name="images"` khỏi [src/app/(tabs)/_layout.tsx](src/app/(tabs)/_layout.tsx) và entry `images` khỏi mảng `TABS` trong [src/components/glass-tab-bar.tsx](src/components/glass-tab-bar.tsx) — thanh glass về lại 4 tab.
+- [x] **Không** đụng `services/image-search.ts`, `db/user.ts` (bảng `image_cache`), hàng "Xoá cache ảnh" trong Cài đặt, hay `Icons.Images` — chỉ đổi nơi hiển thị, không đổi tầng dữ liệu. Cache theo `query` nên vẫn hoạt động nguyên vẹn ở vị trí mới.
+
+### Test
+- [x] `npx tsc --noEmit` — 0 lỗi. `npx vitest run` — 46/46 pass (4 test của `image-search.ts` không cần sửa: service không đổi, chỉ đổi UI gọi nó).
+- [x] Grep toàn `src/` xác nhận không còn tham chiếu treo nào tới route `images` sau khi xoá file.
+
+### Verify — endpoint DuckDuckGo thật (mục còn dở của Task 29)
+Task 29 để ngỏ *"endpoint DDG thật (test chỉ dùng `fetchImpl` giả) chưa được xác nhận"*. Đã chạy thật, không phải giả:
+- [x] Bước 1 token: `GET duckduckgo.com/?q=otter&iar=images…` → HTTP 200, regex `vqd=['"]([\d-]+)['"]` **khớp** (`4-2926550666568…`) — tức pattern trong code vẫn đúng với HTML DDG đang phục vụ.
+- [x] Bước 2 kết quả: `GET duckduckgo.com/i.js?…&vqd=…` → HTTP 200, **84 kết quả thật**.
+- [x] Tên field đối chiếu với payload thật (`discovery_date, encoding_format, height, image, image_token, source, thumbnail, thumbnail_token, title, url, width`) — hàm map trong `fetchResultsPage()` giữ được **84/84** ảnh sau `.filter()`, **0** ảnh thiếu `title`, **0** thiếu `sourceUrl` (`r.url`). Dòng "Nguồn:" sẽ hiện domain thật chứ không rơi về "không rõ".
+
+### Verify — còn lại
+### Verify — chạy thật trên emulator (Android 16 / API 36, Medium_Phone_API_36.0)
+Đã build dev client + `adb push` DB 185MB thẳng vào `files/` của app (bỏ qua luồng tải LAN của SETUP.md), rồi thao tác thật và chụp màn hình từng bước:
+- [x] Accordion **"Ảnh minh hoạ" nằm đúng chỗ** — dưới "Nghĩa tiếng Việt", trên "Word origin", **đóng sẵn** khi mở từ.
+- [x] **Lazy-fetch đúng hợp đồng**: lúc đóng không có request nào; bấm mở → hiện spinner ngay → ~10s sau ra lưới. Tức mở accordion đúng là tín hiệu fetch, không sớm hơn.
+- [x] Lưới **3×3 = 9 ảnh** rái cá thật, ô vuông đều, không tràn, không cần `FlatList` (flex-wrap trong `ScrollView` cuộn mượt, không warning VirtualizedList).
+- [x] Modal xem ảnh lớn: ảnh full, tiêu đề thật ("Amazing Sea Otter — Sea Otter Facts…"), **"Nguồn: worldmostamazingthings.com"** — đúng domain trong payload DDG, `hostOf()` cắt `www.` chuẩn. Nút ✕ đóng được.
+- [x] **Cache chạy**: mở lại accordion lần 2 ra ảnh sau ~2s thay vì ~10s, đúng 9 ảnh cũ — `image_cache` hit, không gọi lại DDG.
+- [x] Dòng ghi công "Ảnh từ DuckDuckGo — chỉ để tham khảo trong app." hiển thị dưới lưới.
+- [x] Thanh glass còn **4 tab** (Tra cứu · Từ của tôi · Ôn tập · Cài đặt), không còn "Ảnh", giãn đều, tab active có lamp glow teal.
+- [x] Warning runtime duy nhất là `Linking found multiple possible URI schemes` — có sẵn từ trước do `app.json` khai 2 scheme (`minotara`, `dict`), không phải từ thay đổi này.
+- [ ] **Còn lại**: chưa chạy iOS; và blur/glow chỉ xem qua render phần mềm (xem mục Verify của Task 31).
+
+### Report sau code
+Đây là đổi **vị trí hiển thị**, không đổi tầng dữ liệu — `image-search.ts`, `image_cache`, và hàng xoá cache trong Cài đặt giữ nguyên 100%, nên phần đã test kỹ của Task 29 không bị rewrite. Hai quyết định UX (accordion vs strip, tự tải vs bấm mới tải) đều hỏi user chứ không tự chọn, và hoá ra ghép được thành 1 thao tác nhờ `<Accordion>` vốn đã lazy-mount — không phải thêm nút riêng. Nhân tiện đóng luôn mục verify còn dở của Task 29: endpoint DDG đã được gọi thật và đối chiếu từng field với payload thật, không đoán. Phần chưa chốt vẫn là cảm giác thị giác trên device thật.
+
+---
+
+## Ghi chú môi trường — build Android dev client (2026-09-04)
+
+Không phải task; ghi lại để lần sau khỏi mất thời gian dò lại. `android/` được gitignore nên kiến thức này không nằm ở đâu khác trong repo.
+
+**Bẫy: build fail với `Class org.gradle.jvm.toolchain.JvmVendorSpec does not have member field 'IBM_SEMERU'`.**
+
+- Chuỗi nhân quả (truy bằng `./gradlew --stacktrace`, không đoán): `expo prebuild` sinh wrapper Gradle **9.3.1** → Gradle 9 đã **xoá** hằng `JvmVendorSpec.IBM_SEMERU` → nhưng `node_modules/@react-native/gradle-plugin/settings.gradle.kts:16` pin plugin `org.gradle.toolchains.foojay-resolver-convention` bản **0.5.0** vẫn tham chiếu hằng đó → `ExceptionInInitializerError` tại `org.gradle.toolchains.foojay.DistributionsKt.<clinit>`.
+- **Vì sao foojay bị gọi**: nó là plugin *tự tải JDK*, chỉ chạy khi Gradle không tìm thấy JDK toolchain build yêu cầu. Máy dev có Java 21 mặc định, RN cần JDK 17 → Gradle đi nhờ foojay → nổ. Nói cách khác lỗi này **không** phải lỗi Gradle version, mà là "thiếu JDK 17".
+- **Fix**: trỏ `JAVA_HOME` vào một JDK 17. Máy này đã sẵn có (do foojay tải từ lần build cũ, hồi Gradle còn tương thích):
+
+```bash
+export JAVA_HOME=~/.gradle/jdks/eclipse_adoptium-17-amd64-linux/jdk-17.0.16+8
+export PATH=$JAVA_HOME/bin:$PATH
+npx expo run:android      # BUILD SUCCESSFUL in 3m 44s
+```
+
+- Cố ý **không** sửa `gradle-wrapper.properties` hay vá `node_modules`: bản vá node_modules mất khi `npm install`, còn hạ Gradle wrapper là đổi file sinh ra bởi prebuild — cả hai đều biến vấn đề riêng của một máy thành thay đổi trong repo.
+
+**Nạp DB từ điển vào emulator nhanh hơn luồng LAN của SETUP.md** — `dictionaryReady()` chỉ cần file tồn tại + `size > 1024` (không có `.meta.json` thì rơi về nhánh check-size), nên push thẳng là xong:
+
+```bash
+adb push oxford-app.db /data/local/tmp/oxford-app.db
+adb shell run-as com.anonymous.Minotara cp /data/local/tmp/oxford-app.db files/oxford-app.db
+```
+
+(`com.anonymous.Minotara` là package `expo prebuild` tự sinh vì `app.json` không khai `android.package`.)
+
+Emulator headless để chụp màn hình: `emulator -avd <avd> -no-window -gpu swiftshader_indirect -no-audio` rồi `adb exec-out screencap -p > shot.png`. Lưu ý render phần mềm → **không** dùng để kết luận về blur/glow.
+
+---
+
+## Task 33 — [UX] Màn chi tiết từ chia 3 view + tra từ tiếp ngay tại chỗ
+
+### Mô tả
+Sau Task 32, user phản hồi màn chi tiết vẫn phải cuộn nhiều, và đề xuất cấu trúc kiểu TFlat: tab ngay dưới header, từ loại xuống dưới từ vựng thay dòng chữ xám. Kèm yêu cầu thêm icon tìm kiếm ở header để không phải back về Trang chủ mới tra tiếp được.
+
+### Đo trước khi thiết kế (toàn bộ 68.832 entry)
+Tiền đề "phải cuộn nhiều" đúng, nhưng **không phải vì nội dung từ điển**:
+
+| Chỉ số | Kết quả |
+|---|---|
+| Entry chỉ 1 nghĩa | 73,4% |
+| Entry ≤3 nghĩa | 95,2% |
+| Có idioms / phrasal verbs | 5,5% / 4,0% |
+| Có grammar hoặc labels ở dòng POS | 45,6% |
+| Headword có >1 entry (homograph) | 8,7% |
+| Sense có guideword | 7,6% |
+
+`otter` chỉ 1 nghĩa mà màn vẫn dài ~2,5 màn hình → độ dài đến từ **chrome cố định** (Biến thể, Ghi chú, Nghĩa Việt, Ảnh), không từ số nghĩa. Nên chia view là đúng hướng, nhưng phải chia theo **nguồn dữ liệu**, không theo section: tách section thì tab "Idioms" rỗng với 94,5% số từ — tab rỗng gần như luôn luôn thì dạy người dùng đừng bấm nó.
+
+### Solution implemented
+- [x] **3 view chia theo nguồn**, mỗi view gần như luôn có nội dung: **Anh–Anh** (Biến thể, Nghĩa, Idioms, Phrasal verbs, Word origin, See also) · **Ảnh** · **Tiếng Việt** (nghĩa Việt + ghi chú của bạn). Idioms/phrasal/origin ở lại trong Anh–Anh dạng accordion vì hiếm.
+- [x] Mặc định **Anh–Anh** — không phải vì nó "chính" mà vì nó là view **duy nhất chạy offline** (brief §3.1 *English first, network never blocks*); mặc định mở ra một view có thể hiện "Cần mạng" là trải nghiệm tệ.
+- [x] Thanh view **ghim ngay dưới header**, không đặt dưới khối headword — đặt dưới thì vị trí xê dịch theo từng từ (banner biến thể có/không, headword dài/ngắn); ở đây nó đứng yên với mọi từ, học được bằng cơ bắp.
+- [x] **Chip từ loại xuống dưới headword, thay hẳn dòng `noun · grammar · labels`.** 91,3% số từ chỉ có 1 từ loại → vẫn tô đậm y hệt (chip tô đậm đọc ra là *trạng thái*, không phải nút), chỉ bỏ `onPress` nên bấm không nhấp nháy như nút hỏng. Nhiều từ loại thì chip thứ hai hiện cạnh và chuyển được.
+- [x] `grammar`/`labels` **xuống dòng riêng** dạng badge, dùng lại style `tagBadge` có sẵn ở cấp nghĩa — không gộp cùng hàng với chip, vì hàng đó sẽ vừa chọn được vừa không.
+- [x] **Đổi chip KHÔNG reset view**: `entryIdx` và `view` là hai state riêng. Đang đọc Tiếng Việt của `bank` (noun) bấm sang verb thì vẫn ở Tiếng Việt, nội dung đổi theo `meaningsForPos`.
+- [x] **Mỗi view nhớ vị trí cuộn riêng**: mỗi view một `ScrollView`, ẩn bằng `display:'none'` chứ không unmount. View chưa vào bao giờ thì chưa nằm trong `visited` nên chưa tồn tại → **giữ nguyên tính lazy**: tab Ảnh không gọi DuckDuckGo cho tới khi bấm vào thật. Bỏ được `<Accordion>` bọc ảnh mà không mất hợp đồng lazy.
+- [x] Khối nhận diện từ (banner biến thể, headword, chip, IPA, loa, YouGlish) **nằm trong** ScrollView chứ không ghim — loa dùng lúc mới mở từ, không dùng liên tục, nên để nó cuộn đi nhường màn hình cho nội dung. Cùng một element JSX dùng lại cho cả 3 view.
+- [x] `src/components/search-overlay.tsx` (mới) — `<Modal>` phủ lên, **không** route mới: đóng là về đúng từ đang đọc, back stack không phình thêm tầng chỉ để gõ chữ. Tự focus sau 120ms (chờ modal vào xong, nếu không bàn phím bị nuốt). Chọn gợi ý thì `push` để tra chuỗi `bank → river` rồi back ngược lại được. Dùng lại đúng `suggest()` của màn Tra cứu — không có "hai kiểu tìm".
+- [x] Khối ảnh phải tự cấp `s.section` padding: trước kia `<Accordion>` cấp lề, bỏ accordion đi thì lưới tràn sát mép trong khi mọi thứ khác thụt vào. **Bắt được lỗi này nhờ chụp màn hình trên máy ảo, `tsc` không thấy.**
+
+### Kèm theo — sửa bug lệch dòng số nghĩa (phát hiện khi user soi mockup)
+`senseNum` cỡ 14 và `guideword` cỡ 11, mỗi cái tự tính hộp dòng riêng rồi cùng canh mép trên → chân chữ lệch. Ép cả hai `lineHeight: 20` thì chữ tự canh giữa trong cùng hộp dòng.
+
+Chỉ 1,5% số từ có guideword, **nhưng nhóm đó trung bình 7,5 nghĩa/từ** (phần còn lại 1,4) — tức lỗi rơi đúng vào những entry dài nhất, đúng lúc người ta cần cột số để dò.
+
+### Test
+- [x] `npx tsc --noEmit` — 0 lỗi. `npx vitest run` — 46/46 pass (thay đổi thuần UI, không đụng service).
+
+### Verify — chạy thật trên emulator (Android 16 / API 36)
+- [x] Thanh 3 view ghim dưới header, gạch chân teal ở view đang chọn.
+- [x] Chip `noun`/`verb` dưới headword; `river` (1 từ loại) vẫn tô đậm đúng như từ nhiều từ loại.
+- [x] Tab Ảnh: lưới 3×3 ảnh thật, **thẳng hàng** với headword sau khi thêm padding.
+- [x] Tab Tiếng Việt: nghĩa Việt + ghi chú, cả hai đã rời khỏi luồng Anh–Anh.
+- [x] **Đổi chip giữ nguyên view**: đang ở Tiếng Việt bấm `verb` → vẫn Tiếng Việt, nghĩa đổi sang nghĩa động từ, `noun` chuyển sang "Nghĩa khác".
+- [x] **Nhớ cuộn**: cuộn sâu trong Anh–Anh → sang view khác → quay lại, vẫn đúng chỗ cũ.
+- [x] Số nghĩa 2/3/4/5 thẳng hàng với guideword `money` / `of plane` / `form piles` / `a fire`.
+- [x] Search overlay: tự focus, gợi ý sống (`riv` → rival/riven/river/rivet), chọn `river` điều hướng thẳng không qua Trang chủ.
+- [ ] **Còn lại**: chưa chạy iOS. Chưa thử với cỡ chữ lớn nhất trong Cài đặt (`fontScale`) — thanh 3 view có thể tràn ngang ở tiếng Việt dài như "Tiếng Việt".
+
+### Report sau code
+Cấu trúc user đề xuất tốt hơn bản đầu của mình ở 2 điểm và mình đã nói rõ vì sao: tab ở vị trí cố định (bản mình đặt dưới headword nên xê dịch theo từng từ), và nó xoá luôn vấn đề "hai dải ngang" mà bản mình phải bày cách phân biệt. Ngược lại mình giữ 2 điểm data không ủng hộ đề xuất ban đầu: không tách section thành tab (rỗng 95% thời gian), và chip vẫn tô đậm khi chỉ có 1 từ loại (ý viền-đứt của mình ở mockup v2 là ký hiệu tự chế, user bác đúng). Hai phát hiện chỉ lộ ra khi đo data: dòng chữ xám không chỉ chứa từ loại (45,6% có thêm grammar/labels), và chip không tác dụng lên tab Ảnh (ảnh tra theo headword, giống nhau giữa các từ loại) — mục sau chấp nhận để nguyên, ẩn/làm mờ đều đắt hơn cái lợi.
+
+---
+
+## Task 34 — [Perf] Cắt mỡ oxford-app.db: 185MB → 143MB, không mất dữ liệu
+
+### Mô tả
+User lo "file db nặng, build app sẽ nặng". **Tiền đề sai** — mở APK vừa build ra kiểm tra: **0 byte database** trong đó (nặng nhất là `libreactnative.so` 21MB + các file dex). DB được tải về `documentDirectory` ở SCR-00 đúng như spec §0.3. Vấn đề thật là (a) bắt user tải 185MB lần đầu, (b) 185MB nằm lại trên đĩa máy.
+
+### Đo trước khi sửa (toàn bộ 68.832 entry)
+Dung lượng theo bảng: `entries` **152,5MB (82%)** · `forms` 16,1MB · `search_index`+index 15,2MB.
+
+Bóc cột `data` (112,1MB JSON):
+
+| Thành phần | | |
+|---|---|---|
+| Key JSON + dấu ngoặc | 47,6 MB | 42,5% |
+| **`pronunciations`** | **32,3 MB** | **28,8%** |
+| Định nghĩa + ví dụ | 15,8 MB | 14,1% |
+
+`pronunciations` phình vì mỗi entry lưu **4 URL Oxford đầy đủ**, trong đó `audio_ogg` **không có trong interface `EntryData`** và grep toàn `src/` không chỗ nào đọc — dead weight thuần.
+
+### Solution implemented
+- [x] `scripts/build-app-db.js` — thêm `slimEntry()` chạy lúc copy bảng entries:
+  - bỏ `audio_ogg` → **−14,5MB**
+  - bỏ `word`/`pos`/`cefr` (đã là cột của chính bảng entries, đang lưu 2 lần) → **−3,0MB**
+  - cắt tiền tố `https://www.oxfordlearnersdictionaries.com/media/english/` (55 ký tự × >130k URL) → **−7,1MB**
+  - bỏ `inflections`/`variants` (luôn null trong data thật)
+- [x] `src/db/types.ts` — `parseEntryData()` ghép lại tiền tố khi đọc. Chọn chỗ này vì nó vốn đã chuẩn hoá shape → `playUrl`, cache key SHA-256, và toàn bộ UI **không phải đổi một dòng nào**.
+- [x] `absAudio()` bỏ qua URL đã tuyệt đối → **máy nào đã tải bản DB cũ vẫn chạy bình thường**, không bắt ai tải lại 185MB chỉ vì đổi cách lưu.
+- [x] **KHÔNG** đụng URL trong bảng `forms`: chỉ được thêm 2,8MB (1,5%) mà phải sửa 2 câu query trong `lookup.ts` cộng 2 chỗ đọc thẳng trong JSX — không đáng đổi.
+
+### Kết quả đo thật (rebuild từ oxford.db nguồn 1,4GB)
+| | Đĩa | gzip | zstd |
+|---|---|---|---|
+| Cũ | 185 MB | 28 MB | 21 MB |
+| **Mới** | **143 MB** | **26 MB** | **19 MB** |
+
+`data`: 112,1MB → 84,9MB (−24,3%).
+
+**Nén và cắt mỡ giải quyết hai vấn đề khác nhau** — nén ăn 85% dung lượng *tải* nhưng không cứu được *đĩa*; cắt mỡ ăn 42MB *đĩa* nhưng sau khi nén chỉ còn giúp 2MB tải.
+
+### Test
+- [x] So khớp 2 DB: số dòng `entries`/`forms`/`search_index`/`form_type_label` **giống hệt**.
+- [x] **131.221 URL audio** ghép lại và so với bản gốc — **0 sai**. 0 entry lệch số nghĩa.
+- [x] 4 test mới cho `parseEntryData`: ghép tiền tố, giữ nguyên URL tuyệt đối (tương thích ngược), audio null không sinh URL rác, data thiếu word/pos/cefr vẫn parse.
+- [x] `npx tsc --noEmit` — 0 lỗi. `npx vitest run` — **50/50 pass**.
+
+### Verify
+- [x] Đẩy DB mới vào emulator, xoá cả `-shm`/`-wal` cũ (WAL mồ côi trỏ vào file đã bị thay là đường dẫn thẳng tới lỗi "file is not a database").
+- [x] Chạy thật trên emulator với DB mới: `river` hiện đủ IPA, 5 biến thể, 2 nghĩa, Idioms, Word origin, See also.
+- [x] **Phát âm chạy** — bấm loa UK, app tải và cache file MP3 17KB. Kiểm chặt hơn: cache key là SHA-256 của URL, tên file trên máy (`48b685a6…899ed`) **khớp đúng** SHA-256 của URL đầy đủ `…/uk_pron/r/riv/river/river__gb_1.mp3` → tiền tố được ghép lại chính xác từng ký tự, không phải "nghe được là may".
+
+### Chưa làm (phần host)
+Vẫn còn `DEFAULT_URL = 'http://192.168.1.10:3000/oxford-app.db'` hardcode IP LAN — user thật không tải được. Đã bàn phương án:
+- **Google Drive: KHÔNG.** File >100MB trả trang HTML cảnh báo virus kèm confirm token, `createDownloadResumable` sẽ ghi trang HTML đó vào `oxford-app.db` → `isCorruptionError()` khớp → app xoá file và đá về onboarding, lặp vô hạn.
+- **GitHub Releases** (khuyên dùng): free, 2GB/file, URL cố định, **hỗ trợ Range** nên giữ được resumable. Repo hiện chưa có remote.
+- **Tránh** Cloudflare Pages/Netlify — giới hạn ~25MB/file, chặn thẳng file 26MB.
+- Nén: **không** dựa vào `Content-Encoding: gzip` (GitHub Releases trả nguyên trạng, Cloudflare bỏ qua nén file >10MB). Thay vào đó host `.zip` rồi giải nén native bằng `react-native-zip-archive@9.5.1` — app **vốn đã bắt buộc dev build** nên thêm native module không tốn thêm gì về quy trình, và Range vẫn chạy trên file nhị phân thường.
+
+---
