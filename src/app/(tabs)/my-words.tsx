@@ -1,5 +1,6 @@
 /**
  * SCR-04 — Từ của tôi. Signature: Leitner ladder ticks, not rainbow box pills.
+ * Swipe-to-delete with an undo window (Task 28) replaces long-press+confirm.
  */
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
@@ -9,6 +10,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { openUser } from '@/db/open';
 import { listSaved, savedStats, unsaveWord, type SavedOrder, type SavedWord } from '@/db/user';
 import { CefrBadge, IconButton, Icons, LeitnerLadder, SectionLabel, UiIcon } from '@/components/dict-ui';
+import { SwipeToDelete } from '@/components/swipe-to-delete';
+import { UndoToast } from '@/components/undo-toast';
+import { TAB_BAR_HEIGHT } from '@/components/glass-tab-bar';
+import { usePendingDelete } from '@/hooks/use-pending-delete';
 import { usePalette } from '@/theme/use-palette';
 import { component, radius, space, type as typeScale } from '@/theme/tokens';
 import type { Semantic } from '@/theme/tokens';
@@ -36,13 +41,19 @@ export default function MyWordsScreen() {
     }, [order]);
     useFocusEffect(reload);
 
+    const { pendingItem, remove, undo } = usePendingDelete<SavedWord>(async (word) => {
+        await unsaveWord(await openUser(), word.entry_id);
+        reload();
+    });
+
     const shown = useMemo(() => {
         const q = filter.trim().toLowerCase();
-        if (!q) return words;
-        return words.filter((w) => w.headword.toLowerCase().includes(q)
-            || (w.user_meaning ?? '').toLowerCase().includes(q)
-            || (w.note ?? '').toLowerCase().includes(q));
-    }, [words, filter]);
+        return words
+            .filter((w) => w.entry_id !== pendingItem?.entry_id)
+            .filter((w) => !q || w.headword.toLowerCase().includes(q)
+                || (w.user_meaning ?? '').toLowerCase().includes(q)
+                || (w.note ?? '').toLowerCase().includes(q));
+    }, [words, filter, pendingItem]);
 
     return (
         <SafeAreaView style={s.root} edges={['top']}>
@@ -78,7 +89,7 @@ export default function MyWordsScreen() {
             {words.length > 0 && (
                 <View style={s.sortRow}>
                     {ORDERS.map((o) => (
-                        <Pressable key={o.key} onPress={() => setOrder(o.key)}>
+                        <Pressable key={o.key} onPress={() => setOrder(o.key)} style={[s.sortPill, order === o.key && s.sortPillOn]}>
                             <Text style={[s.sortItem, order === o.key && s.sortOn]}>{o.label}</Text>
                         </Pressable>
                     ))}
@@ -88,6 +99,7 @@ export default function MyWordsScreen() {
             <FlatList
                 data={shown}
                 keyExtractor={(w) => String(w.entry_id)}
+                contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT }}
                 ListEmptyComponent={
                     <View style={s.emptyBox}>
                         <UiIcon icon={Icons.Bookmark} color={t.text.tertiary} />
@@ -97,28 +109,32 @@ export default function MyWordsScreen() {
                 renderItem={({ item }) => {
                     const preview = item.user_meaning || item.note;
                     return (
-                        <Pressable
-                            style={({ pressed }) => [s.row, pressed && { backgroundColor: t.surface.raised }]}
-                            onPress={() => router.push({
-                                pathname: '/word/[q]',
-                                params: { q: item.headword, id: String(item.entry_id) },
-                            })}
-                            onLongPress={async () => { await unsaveWord(await openUser(), item.entry_id); reload(); }}
-                        >
-                            <View style={{ flex: 1 }}>
-                                <Text style={s.word}>
-                                    {item.headword}
-                                    <Text style={s.pos}>  {item.pos ?? ''}</Text>
-                                </Text>
-                                {preview ? <Text style={s.meaning} numberOfLines={1}>{preview}</Text> : null}
-                            </View>
-                            <CefrBadge level={item.cefr} size={11} />
-                            <LeitnerLadder box={item.box ?? 1} />
-                        </Pressable>
+                        <SwipeToDelete onDelete={() => remove(item)}>
+                            <Pressable
+                                style={({ pressed }) => [s.row, pressed && { backgroundColor: t.surface.raised }]}
+                                onPress={() => router.push({
+                                    pathname: '/word/[q]',
+                                    params: { q: item.headword, id: String(item.entry_id) },
+                                })}
+                            >
+                                <View style={{ flex: 1 }}>
+                                    <Text style={s.word}>
+                                        {item.headword}
+                                        <Text style={s.pos}>  {item.pos ?? ''}</Text>
+                                    </Text>
+                                    {preview ? <Text style={s.meaning} numberOfLines={1}>{preview}</Text> : null}
+                                </View>
+                                <CefrBadge level={item.cefr} size={11} />
+                                <LeitnerLadder box={item.box ?? 1} />
+                            </Pressable>
+                        </SwipeToDelete>
                     );
                 }}
             />
-            <Text style={s.hint}>Giữ lâu một dòng để xoá</Text>
+            <Text style={s.hint}>Vuốt sang trái để xoá</Text>
+            {pendingItem && (
+                <UndoToast label={`Đã xoá "${pendingItem.headword}"`} onUndo={undo} />
+            )}
         </SafeAreaView>
     );
 }
@@ -140,13 +156,16 @@ function makeStyles(t: Semantic) {
             backgroundColor: t.surface.raised, borderRadius: component.input.radius,
         },
         searchInput: { flex: 1, fontSize: 14, padding: 0, color: t.text.primary },
-        sortRow: { flexDirection: 'row', gap: 18, paddingHorizontal: space.md, paddingVertical: 8 },
+        sortRow: { flexDirection: 'row', gap: 8, paddingHorizontal: space.md, paddingVertical: 8 },
+        sortPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full },
+        sortPillOn: { backgroundColor: t.accent.tint },
         sortItem: { fontSize: 13, color: t.text.tertiary },
         sortOn: { color: t.text.primary, fontWeight: '600' },
         row: {
             flexDirection: 'row', alignItems: 'center', gap: 10,
             paddingHorizontal: space.md, paddingVertical: 12, minHeight: 52,
             borderTopWidth: StyleSheet.hairlineWidth, borderColor: t.border.subtle,
+            backgroundColor: t.surface.canvas,
         },
         word: { fontSize: 15, fontWeight: '500', color: t.text.primary },
         pos: { fontSize: 12, color: t.text.tertiary, fontWeight: '400' },

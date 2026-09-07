@@ -7,12 +7,14 @@ import {
     FlatList, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { dictionaryReady, openDictionary, openUser } from '@/db/open';
 import { suggest, randomB1B2 } from '@/services/lookup';
 import { recentQueries, deleteRecentQuery, getSetting, setSetting } from '@/db/user';
 import type { SuggestRow } from '@/db/types';
 import { CefrBadge, IconButton, Icons, SectionLabel, UiIcon } from '@/components/dict-ui';
+import { TAB_BAR_HEIGHT } from '@/components/glass-tab-bar';
 import { useApp } from '@/stores/app';
 import { usePalette } from '@/theme/use-palette';
 import { component, radius, space, type as typeScale } from '@/theme/tokens';
@@ -111,6 +113,7 @@ export default function SearchScreen() {
                     data={rows}
                     keyExtractor={(r, i) => `${r.display}-${r.kind}-${i}`}
                     keyboardShouldPersistTaps="handled"
+                    contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT }}
                     ListHeaderComponent={fallback
                         ? <Text style={s.empty}>Không khớp tiền tố — ý bạn là</Text>
                         : null}
@@ -145,7 +148,7 @@ export default function SearchScreen() {
                     )}
                 />
             ) : (
-                <View style={{ paddingHorizontal: space.md }}>
+                <View style={{ paddingHorizontal: space.md, paddingBottom: TAB_BAR_HEIGHT }}>
                     {recent.length > 0 && (
                         <>
                             <SectionLabel>Gần đây</SectionLabel>
@@ -156,7 +159,7 @@ export default function SearchScreen() {
                                             <Text style={s.chipText}>{r}</Text>
                                         </Pressable>
                                         <Pressable
-                                            hitSlop={8}
+                                            hitSlop={15}
                                             accessibilityLabel={`Xoá ${r} khỏi gần đây`}
                                             onPress={async () => {
                                                 await deleteRecentQuery(await openUser(), r);
@@ -173,15 +176,21 @@ export default function SearchScreen() {
                     {wotd && (
                         <View style={{ marginTop: space.md }}>
                             <SectionLabel>Từ hôm nay</SectionLabel>
-                            <Pressable
-                                style={({ pressed }) => [s.wotd, pressed && { opacity: 0.85 }]}
-                                onPress={() => go(wotd.headword)}
-                            >
-                                <View>
-                                    <Text style={s.wotdWord}>{wotd.headword}</Text>
-                                    {wotd.pos ? <Text style={s.suggestSub}>{wotd.pos}</Text> : null}
-                                </View>
-                                <CefrBadge level={wotd.cefr} />
+                            <Pressable onPress={() => go(wotd.headword)}>
+                                {({ pressed }) => (
+                                    <LinearGradient
+                                        colors={[t.accent.tint, t.surface.raised]}
+                                        start={{ x: 0, y: 0 }}
+                                        end={{ x: 1, y: 1 }}
+                                        style={[s.wotd, pressed && { opacity: 0.85 }]}
+                                    >
+                                        <View style={s.wotdHeadRow}>
+                                            <Text style={s.wotdWord}>{wotd.headword}</Text>
+                                            <CefrBadge level={wotd.cefr} />
+                                        </View>
+                                        {wotd.pos ? <Text style={s.suggestSub}>{wotd.pos}</Text> : null}
+                                    </LinearGradient>
+                                )}
                             </Pressable>
                         </View>
                     )}
@@ -225,16 +234,16 @@ function makeStyles(t: Semantic) {
         emptyHint: { textAlign: 'center', color: t.text.tertiary, fontSize: 13 },
         chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.sm },
         chip: {
-            flexDirection: 'row', alignItems: 'center', gap: 6,
+            flexDirection: 'row', alignItems: 'center', gap: 10,
             paddingLeft: 12, paddingRight: 8, paddingVertical: 6,
             borderRadius: radius.full, backgroundColor: t.surface.raised,
         },
         chipText: { fontSize: 13, color: t.text.secondary },
         wotd: {
             marginTop: space.sm, padding: space.md, borderRadius: radius.lg,
-            backgroundColor: t.surface.raised,
-            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            overflow: 'hidden', // clip the gradient to the rounded corners on Android
         },
+        wotdHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
         wotdWord: {
             fontSize: typeScale.size.lg, fontWeight: typeScale.weight.semibold,
             color: t.text.primary, letterSpacing: -0.3,

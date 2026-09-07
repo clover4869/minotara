@@ -7,7 +7,7 @@ import {
     History, X, BookOpen, CornerDownRight, ExternalLink,
     RotateCcw, ChevronDown, ChevronUp, Upload, CircleHelp,
     Square, SquareCheck, Trash2, Share2, Headphones, Type,
-    Layers, Settings, CircleX, Check, FileDown, CircleAlert,
+    Layers, Settings, CircleX, Check, FileDown, CircleAlert, SquarePen, Images,
 } from 'lucide-react-native';
 import { playUrl } from '@/services/audio';
 import { icon as iconTokens, primitive } from '@/theme/tokens';
@@ -18,7 +18,7 @@ export const Icons = {
     History, X, BookOpen, CornerDownRight, ExternalLink,
     RotateCcw, ChevronDown, ChevronUp, Upload, CircleHelp,
     Square, SquareCheck, Trash2, Share2, Headphones, Type,
-    Layers, Settings, CircleX, Check, FileDown, CircleAlert,
+    Layers, Settings, CircleX, Check, FileDown, CircleAlert, SquarePen, Images,
 };
 
 type Glyph = ComponentType<LucideProps>;

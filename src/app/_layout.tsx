@@ -3,6 +3,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider, Stack, router } from 'expo-rout
 import * as SplashScreen from 'expo-splash-screen';
 import * as Linking from 'expo-linking';
 import { Image, StyleSheet, Text, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { dictionaryReady, removeDictionaryFile, setOnDictionaryCorrupted } from '@/db/open';
@@ -92,18 +93,21 @@ export default function RootLayout() {
     }, [booted]);
 
     return (
-        <SafeAreaProvider>
-            {!booted ? <BootScreen /> : (
-                <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-                    <Stack screenOptions={{ headerShown: false }}>
-                        <Stack.Screen name="(tabs)" />
-                        <Stack.Screen name="word/[q]" />
-                        <Stack.Screen name="import" options={{ presentation: 'modal' }} />
-                        <Stack.Screen name="history" />
-                        <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
-                    </Stack>
-                </ThemeProvider>
-            )}
-        </SafeAreaProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+            <SafeAreaProvider>
+                {!booted ? <BootScreen /> : (
+                    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                        <Stack screenOptions={{ headerShown: false }}>
+                            <Stack.Screen name="(tabs)" />
+                            <Stack.Screen name="word/[q]" />
+                            <Stack.Screen name="import" options={{ presentation: 'modal' }} />
+                            <Stack.Screen name="history" />
+                            <Stack.Screen name="review-session" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
+                            <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
+                        </Stack>
+                    </ThemeProvider>
+                )}
+            </SafeAreaProvider>
+        </GestureHandlerRootView>
     );
 }

@@ -1,33 +1,19 @@
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { usePalette } from '@/theme/use-palette';
+import { Tabs, TabList, TabTrigger, TabSlot } from 'expo-router/ui';
+import { GlassTabBar } from '@/components/glass-tab-bar';
 
 export default function TabsLayout() {
-    const t = usePalette();
-
     return (
-        <NativeTabs
-            backgroundColor={t.surface.canvas}
-            indicatorColor={t.surface.raised}
-            labelStyle={{
-                color: t.text.tertiary,
-                selected: { color: t.accent.bg },
-            }}>
-            <NativeTabs.Trigger name="index">
-                <NativeTabs.Trigger.Label>Tra cứu</NativeTabs.Trigger.Label>
-                <NativeTabs.Trigger.Icon sf="magnifyingglass" md="search" />
-            </NativeTabs.Trigger>
-            <NativeTabs.Trigger name="my-words">
-                <NativeTabs.Trigger.Label>Từ của tôi</NativeTabs.Trigger.Label>
-                <NativeTabs.Trigger.Icon sf="bookmark" md="bookmark" />
-            </NativeTabs.Trigger>
-            <NativeTabs.Trigger name="review">
-                <NativeTabs.Trigger.Label>Ôn tập</NativeTabs.Trigger.Label>
-                <NativeTabs.Trigger.Icon sf="rectangle.stack" md="style" />
-            </NativeTabs.Trigger>
-            <NativeTabs.Trigger name="settings">
-                <NativeTabs.Trigger.Label>Cài đặt</NativeTabs.Trigger.Label>
-                <NativeTabs.Trigger.Icon sf="gearshape" md="settings" />
-            </NativeTabs.Trigger>
-        </NativeTabs>
+        <Tabs>
+            <TabSlot />
+            {/* Routes are declared here so file-based routing still resolves them;
+                the visible bar itself is GlassTabBar, driven by its own TabTriggers below. */}
+            <TabList style={{ display: 'none' }}>
+                <TabTrigger name="index" href="/" />
+                <TabTrigger name="my-words" href="/my-words" />
+                <TabTrigger name="review" href="/review" />
+                <TabTrigger name="settings" href="/settings" />
+            </TabList>
+            <GlassTabBar />
+        </Tabs>
     );
 }

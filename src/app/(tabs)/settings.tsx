@@ -9,8 +9,9 @@ import { router } from 'expo-router';
 
 import { useApp } from '@/stores/app';
 import { openDictionary, openUser, dictMeta, integrityCheckDictionary, recordDictionaryMeta, removeDictionaryFile } from '@/db/open';
-import { clearHistory, clearViCache, listSaved } from '@/db/user';
+import { clearHistory, clearViCache, clearImageCache, listSaved } from '@/db/user';
 import { clearAudioCache } from '@/services/audio';
+import { TAB_BAR_HEIGHT } from '@/components/glass-tab-bar';
 import { usePalette } from '@/theme/use-palette';
 import type { Semantic } from '@/theme/tokens';
 
@@ -61,7 +62,7 @@ export default function SettingsScreen() {
 
     return (
         <SafeAreaView style={s.root} edges={['top']}>
-            <ScrollView>
+            <ScrollView contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT }}>
                 <Text style={s.section}>Giao diện</Text>
                 <Row label="Giao diện" s={s}>
                     <Segmented
@@ -120,6 +121,10 @@ export default function SettingsScreen() {
                 <LinkRow label="Xoá cache nghĩa Việt" s={s}
                     onPress={() => confirm('Xoá cache nghĩa Việt?', 'Sẽ gọi lại API khi mở từ.', async () => {
                         await clearViCache(await openUser());
+                    })} />
+                <LinkRow label="Xoá cache ảnh" s={s}
+                    onPress={() => confirm('Xoá cache ảnh?', 'Lần tìm sau sẽ tải lại khi có mạng.', async () => {
+                        await clearImageCache(await openUser());
                     })} />
                 <LinkRow label="Export sổ từ (JSON)" s={s} onPress={exportSaved} />
                 <LinkRow label={checking ? 'Đang kiểm tra…' : 'Kiểm tra từ điển'} s={s}

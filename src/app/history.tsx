@@ -1,4 +1,8 @@
-/** SCR-03 — History, grouped by day; confirm before wiping. */
+/**
+ * SCR-03 — History, grouped by day. Swipe-to-delete with an undo window
+ * (Task 28) for single rows; "Xoá tất cả" still confirms since that one
+ * really is irreversible.
+ */
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
@@ -6,6 +10,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { openUser } from '@/db/open';
 import { historyByDay, deleteHistoryRow, clearHistory } from '@/db/user';
+import { SwipeToDelete } from '@/components/swipe-to-delete';
+import { UndoToast } from '@/components/undo-toast';
+import { usePendingDelete } from '@/hooks/use-pending-delete';
 import { usePalette } from '@/theme/use-palette';
 import type { Semantic } from '@/theme/tokens';
 
@@ -53,9 +60,15 @@ export default function HistoryScreen() {
     }, []);
     useFocusEffect(reload);
 
+    const { pendingItem, remove, undo } = usePendingDelete<Row>(async (row) => {
+        await deleteHistoryRow(await openUser(), row.id);
+        reload();
+    });
+
     const sections: Section[] = useMemo(() => {
         const map = new Map<string, Row[]>();
         for (const r of rows) {
+            if (r.id === pendingItem?.id) continue;
             const k = dayKey(r.looked_at);
             if (!map.has(k)) map.set(k, []);
             map.get(k)!.push(r);
@@ -64,7 +77,7 @@ export default function HistoryScreen() {
             title: dayLabel(data[0]?.looked_at ?? k),
             data,
         }));
-    }, [rows]);
+    }, [rows, pendingItem]);
 
     async function loadMore() {
         if (done) return;
@@ -112,20 +125,24 @@ export default function HistoryScreen() {
                     <Text style={s.section}>{section.title}</Text>
                 )}
                 renderItem={({ item }) => (
-                    <Pressable
-                        style={s.row}
-                        onPress={() => router.push(
-                            item.entry_id
-                                ? { pathname: '/word/[q]', params: { q: item.query, id: String(item.entry_id) } }
-                                : `/word/${encodeURIComponent(item.query)}`,
-                        )}
-                        onLongPress={async () => { await deleteHistoryRow(await openUser(), item.id); reload(); }}
-                    >
-                        <Text style={s.query}>{item.query}</Text>
-                        <Text style={s.time}>{timeLabel(item.looked_at)}</Text>
-                    </Pressable>
+                    <SwipeToDelete onDelete={() => remove(item)}>
+                        <Pressable
+                            style={s.row}
+                            onPress={() => router.push(
+                                item.entry_id
+                                    ? { pathname: '/word/[q]', params: { q: item.query, id: String(item.entry_id) } }
+                                    : `/word/${encodeURIComponent(item.query)}`,
+                            )}
+                        >
+                            <Text style={s.query}>{item.query}</Text>
+                            <Text style={s.time}>{timeLabel(item.looked_at)}</Text>
+                        </Pressable>
+                    </SwipeToDelete>
                 )}
             />
+            {pendingItem && (
+                <UndoToast label={`Đã xoá "${pendingItem.query}"`} onUndo={undo} />
+            )}
         </SafeAreaView>
     );
 }
@@ -144,6 +161,7 @@ function makeStyles(t: Semantic) {
         row: {
             flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12,
             borderTopWidth: StyleSheet.hairlineWidth, borderColor: t.border.default,
+            backgroundColor: t.surface.canvas,
         },
         query: { flex: 1, fontSize: 15, color: t.text.primary },
         time: { fontSize: 12, color: t.text.tertiary },
