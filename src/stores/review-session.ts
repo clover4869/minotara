@@ -113,8 +113,8 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
         const { flipped, card, mode } = get();
         if (flipped || !card) return;
         set({ flipped: true });
-        const reviewAutoplay = useApp.getState().reviewAutoplay;
-        if (reviewAutoplay && mode === 'meaning2word') playRepeating(card.audio);
+        const { autoplay } = useApp.getState();
+        if (autoplay && mode === 'meaning2word') playRepeating(card.audio);
     },
 
     async answer(correct) {
@@ -163,8 +163,10 @@ async function showCurrent(
     const c = await loadCard(get().cache, cur.entry_id, dialect);
     set({ card: c });
     const mode = get().mode;
-    const reviewAutoplay = useApp.getState().reviewAutoplay;
+    const { autoplay } = useApp.getState();
+    // meaning2word cố tình KHÔNG phát ở đây: chế độ đó hiện nghĩa và bắt nhớ
+    // lại từ, phát âm thanh lên là đọc luôn đáp án. Chỗ phát của nó là flip().
     const wordVisible = mode === 'word2meaning' || mode === 'listen';
-    if (reviewAutoplay && wordVisible) playRepeating(c.audio);
+    if (autoplay && wordVisible) playRepeating(c.audio);
     else if (mode === 'listen') playUrl(c.audio);
 }

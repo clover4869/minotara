@@ -16,7 +16,21 @@ import { getCachedImages, cacheImages } from '../db/user';
 
 const TOKEN_URL = 'https://duckduckgo.com/';
 const RESULTS_URL = 'https://duckduckgo.com/i.js';
-const TIMEOUT_MS = 3000;
+
+/**
+ * 8s, không phải 3s như vi-meaning.ts. Ở đây bước 1 phải tải cả một trang HTML
+ * kết quả (~18KB) rồi mới gọi tiếp được; đo trên mạng dây mất 0,73s, còn 4G
+ * thì vượt 3s là bình thường — và timeout thì hiện ra thành "Cần mạng để xem
+ * ảnh", tức là đổ lỗi cho mạng của người dùng.
+ */
+const TIMEOUT_MS = 8000;
+
+/**
+ * Cache ảnh hết hạn sau 30 ngày. Trước đây câu SELECT không nhìn `fetched_at`
+ * nên cache sống mãi: endpoint chết rồi mà vài từ vẫn có ảnh (cache cũ), từ
+ * mới thì báo lỗi — nhìn ra như lỗi ngắt quãng thay vì một nguồn đã hỏng.
+ */
+export const IMAGE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 
 export interface ImageResult {
@@ -66,9 +80,13 @@ async function fetchResultsPage(fetchImpl: typeof fetch, query: string, page: nu
 }
 
 /**
- * Cache-first fetch. Returns `{ results: [], failed: true }` on any failure
- * — callers render a "cần mạng" row instead of an error, same contract as
- * getViMeanings() in vi-meaning.ts. `fetchImpl` injected for tests.
+ * Cache-first fetch. Fail soft, không bao giờ throw ra UI — cùng hợp đồng với
+ * getViMeanings() trong vi-meaning.ts. `fetchImpl` tiêm vào để test.
+ *
+ * `failed: true` chỉ có nghĩa "không lấy được ảnh", KHÔNG có nghĩa mất mạng:
+ * nó bật lên cho cả 403, timeout, regex vqd không khớp, JSON hỏng. Chỗ gọi
+ * phải tự kiểm tra mạng trước khi nói với người dùng là do mạng — nói sai
+ * nguyên nhân thì họ đi sửa Wi-Fi trong khi lỗi nằm ở endpoint.
  */
 export async function searchImages(
     userDb: DbLike,
@@ -79,7 +97,7 @@ export async function searchImages(
     const query = rawQuery.trim().toLowerCase();
     if (!query) return { results: [], fromCache: false, failed: false };
 
-    const cached = await getCachedImages(userDb, query, page);
+    const cached = await getCachedImages(userDb, query, page, IMAGE_CACHE_TTL_MS);
     if (cached) {
         try {
             return { results: JSON.parse(cached), fromCache: true, failed: false };

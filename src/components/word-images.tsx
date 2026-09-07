@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
+import * as Network from 'expo-network';
 
 import { openUser } from '@/db/open';
 import { searchImages, type ImageResult } from '@/services/image-search';
@@ -31,24 +32,49 @@ function hostOf(url: string): string {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
 }
 
+/**
+ * `searchImages()` bật `failed` cho mọi kiểu thất bại — 403, timeout, đổi
+ * HTML, JSON hỏng — và nó không biết gì về thiết bị. Trước đây màn hình đọc cờ
+ * đó rồi in "Cần mạng để xem ảnh", nên khi nguồn ảnh chết người dùng đi kiểm
+ * tra Wi-Fi. Hỏi trạng thái mạng ở đây để nói đúng thứ đang sai.
+ */
+async function whyFailed(): Promise<'offline' | 'source'> {
+    try {
+        const n = await Network.getNetworkStateAsync();
+        return n.isConnected ? 'source' : 'offline';
+    } catch {
+        return 'source'; // không đọc được trạng thái mạng thì đừng đoán là do mạng
+    }
+}
+
 export function WordImages({ word }: { word: string }) {
     const t = usePalette();
     const s = useMemo(() => makeStyles(t), [t]);
     const [results, setResults] = useState<ImageResult[] | null>(null);
-    const [failed, setFailed] = useState(false);
+    const [failed, setFailed] = useState<'offline' | 'source' | null>(null);
     const [tick, setTick] = useState(0);
     const [preview, setPreview] = useState<ImageResult | null>(null);
 
     useEffect(() => {
         const q = word.trim();
-        if (!q) { setResults([]); setFailed(false); return; }
+        if (!q) { setResults([]); setFailed(null); return; }
         let alive = true;
         setResults(null);
-        setFailed(false);
-        openUser()
-            .then((user) => searchImages(user, q))
-            .then((r) => { if (alive) { setResults(r.results); setFailed(r.failed); } })
-            .catch(() => { if (alive) { setResults([]); setFailed(true); } });
+        setFailed(null);
+        (async () => {
+            try {
+                const r = await searchImages(await openUser(), q);
+                if (!alive) return;
+                setResults(r.results);
+                // Chỉ hỏi trạng thái mạng khi đã fail — hỏi trước là thêm một
+                // lần chờ vô ích cho đường đi thành công.
+                setFailed(r.failed ? await whyFailed() : null);
+            } catch {
+                if (!alive) return;
+                setResults([]);
+                setFailed(await whyFailed());
+            }
+        })();
         return () => { alive = false; };
     }, [word, tick]);
 
@@ -59,7 +85,11 @@ export function WordImages({ word }: { word: string }) {
     if (failed && results.length === 0) {
         return (
             <View style={[s.row, { marginTop: space.sm }]}>
-                <Text style={s.dim}>Cần mạng để xem ảnh</Text>
+                <Text style={s.dim}>
+                    {failed === 'offline'
+                        ? 'Cần mạng để xem ảnh'
+                        : 'Nguồn ảnh đang không phản hồi — không phải do mạng của bạn'}
+                </Text>
                 <Pressable onPress={() => setTick((n) => n + 1)} style={s.row} hitSlop={8}>
                     <UiIcon icon={Icons.RotateCcw} size={14} color={t.accent.bg} />
                     <Text style={s.link}>Thử lại</Text>

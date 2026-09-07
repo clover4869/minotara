@@ -24,6 +24,14 @@ async function cacheKey(url: string): Promise<string> {
 let player: AudioPlayer | null = null;
 let repeatTimer: ReturnType<typeof setInterval> | null = null;
 
+/**
+ * Tăng mỗi lần stopRepeat(). `playRepeating()` phải await tải file về, và
+ * trong lúc await đó người dùng có thể đã chấm điểm sang thẻ khác. Không có
+ * mốc này thì lời gọi cũ tỉnh lại sau khi tải xong sẽ phát từ CŨ và đặt một
+ * timer mới đè lên thẻ mới — nghe ra là "từ trước cứ lặp mãi".
+ */
+let generation = 0;
+
 async function ensureCached(url: string): Promise<string | null> {
     try {
         await FileSystem.makeDirectoryAsync(CACHE_DIR, { intermediates: true }).catch(() => {});
@@ -37,13 +45,15 @@ async function ensureCached(url: string): Promise<string | null> {
     }
 }
 
-/** Play a pronunciation URL once. Returns false when unplayable (offline, 404). */
-export async function playUrl(url: string | null | undefined): Promise<boolean> {
-    if (!url) return false;
+/**
+ * Tải rồi phát, bỏ giữa đường nếu `token` đã cũ. Tách riêng khỏi hai hàm công
+ * khai vì cả hai đều gọi stopRepeat() trước — nếu hàm này cũng gọi thì mốc
+ * generation bị tăng hai lần trong một lượt và phép so mốc luôn sai.
+ */
+async function loadAndPlay(url: string, token: number): Promise<boolean> {
     const local = await ensureCached(url);
-    if (!local) return false;
+    if (!local || token !== generation) return false;
     try {
-        stopRepeat();
         player?.remove();
         player = createAudioPlayer(local);
         player.play();
@@ -53,17 +63,40 @@ export async function playUrl(url: string | null | undefined): Promise<boolean> 
     }
 }
 
-/** 05B-03b: repeat every 3s until stopRepeat() (called on grade/flip/unmount). */
+/** Play a pronunciation URL once. Returns false when unplayable (offline, 404). */
+export async function playUrl(url: string | null | undefined): Promise<boolean> {
+    if (!url) return false;
+    stopRepeat();
+    return loadAndPlay(url, generation);
+}
+
+/**
+ * 05B-03b: lặp mỗi 3s cho tới khi stopRepeat() (gọi lúc chấm điểm/lật/unmount).
+ *
+ * stopRepeat() phải chạy NGAY đầu hàm, trước mọi await. Trước đây nó chỉ chạy
+ * bên trong playUrl(), mà playUrl() lại `return false` sớm khi url null hoặc
+ * tải fail — nên nếu thẻ mới không có audio thì timer của thẻ cũ vẫn sống và
+ * từ cũ lặp mãi trên thẻ mới.
+ */
 export async function playRepeating(url: string | null | undefined): Promise<void> {
-    const ok = await playUrl(url);
-    if (!ok) return; // offline without cache → silence, no error
+    stopRepeat();
+    if (!url) return;
+    const mine = generation;
+    if (!(await loadAndPlay(url, mine))) return; // offline mà chưa cache → im lặng, không báo lỗi
+    if (mine !== generation) return;             // đã sang thẻ khác trong lúc tải
     repeatTimer = setInterval(() => {
         try { player?.seekTo(0); player?.play(); } catch { stopRepeat(); }
     }, 3000);
 }
 
+/**
+ * Dừng hẳn: huỷ timer VÀ dừng tiếng đang phát. Trước đây chỉ huỷ timer, nên
+ * chấm điểm giữa lúc đang phát thì đoạn đó vẫn chạy hết trên thẻ tiếp theo.
+ */
 export function stopRepeat(): void {
+    generation++;
     if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
+    try { player?.pause(); } catch { /* player đã bị remove() — không có gì phải dừng */ }
 }
 
 export async function clearAudioCache(): Promise<void> {

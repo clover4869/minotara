@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import Database from 'better-sqlite3';
 import { parseEntryData, type DbLike } from '../src/db/types';
-import { lookup, suggest, normalizeQuery, initialEntryIndex, formsOfEntry, groupFormOf } from '../src/services/lookup';
+import { lookup, suggest, normalizeQuery, initialEntryIndex, formsOfEntry, groupFormOf, dailyWords } from '../src/services/lookup';
 import { parseImportText, shouldSuggestTemplate } from '../src/services/import-parser';
 import { matchImport } from '../src/services/import-matcher';
 import { grade, buildSession, buildAheadSession, dueBoxCounts, SessionQueue, boxFromStability, previewIntervals, maskHeadword, type SrsState } from '../src/services/srs';
-import { migrateUserDb, saveWord, savedStats, getSetting, setSetting, nextDueAt } from '../src/db/user';
+import { migrateUserDb, saveWord, savedStats, getSetting, setSetting, nextDueAt, getCachedImages, cacheImages } from '../src/db/user';
 import { getViMeanings, meaningsForPos, meaningsOtherPos, normalizeViPos } from '../src/services/vi-meaning';
-import { searchImages } from '../src/services/image-search';
+import { searchImages, IMAGE_CACHE_TTL_MS } from '../src/services/image-search';
 
 /** better-sqlite3 wrapped to look like expo-sqlite's async API. */
 function wrap(db: Database.Database): DbLike {
@@ -555,5 +555,63 @@ describe('parseEntryData — ghép lại URL audio đã rút gọn', () => {
         expect(d.pos).toBeNull();
         expect(d.homograph).toBe(2);
         expect(d.senses).toHaveLength(1);
+    });
+});
+
+describe('cache ảnh — hết hạn theo fetched_at', () => {
+    const row = JSON.stringify([{ image: 'a', thumbnail: 'b' }]);
+
+    it('hàng còn mới thì dùng lại', async () => {
+        const user = await makeUser();
+        await cacheImages(user, 'otter', 1, row);
+        expect(await getCachedImages(user, 'otter', 1, 60_000)).toBe(row);
+    });
+
+    it('hàng quá tuổi thì coi như không có, để đi lấy mới', async () => {
+        const user = await makeUser();
+        await user.runAsync(
+            'INSERT INTO image_cache (query, page, json, fetched_at) VALUES (?,?,?,?)',
+            'otter', 1, row, new Date(Date.now() - 40 * 24 * 3600_000).toISOString());
+        expect(await getCachedImages(user, 'otter', 1, IMAGE_CACHE_TTL_MS)).toBeNull();
+        // không truyền maxAgeMs thì vẫn trả — dùng cho chỗ không cần tươi
+        expect(await getCachedImages(user, 'otter', 1)).toBe(row);
+    });
+
+    it('fetched_at rác thì coi như hết hạn, không giữ mãi hàng không rõ tuổi', async () => {
+        const user = await makeUser();
+        await user.runAsync(
+            'INSERT INTO image_cache (query, page, json, fetched_at) VALUES (?,?,?,?)',
+            'otter', 1, row, 'không phải ngày');
+        expect(await getCachedImages(user, 'otter', 1, IMAGE_CACHE_TTL_MS)).toBeNull();
+    });
+});
+
+describe('dailyWords — gợi ý hằng ngày', () => {
+    function dictWithCefr(): DbLike {
+        const db = new Database(':memory:');
+        db.exec(`CREATE TABLE entries (id INTEGER PRIMARY KEY, headword TEXT, pos TEXT, cefr TEXT);
+            INSERT INTO entries (id, headword, pos, cefr) VALUES
+              (1,'alpha','noun','B1'), (2,'beta','verb','B2'), (3,'gamma','noun','B1'),
+              (4,'delta','noun','C1'), (5,'epsilon','noun',NULL);`);
+        return wrap(db);
+    }
+
+    it('chỉ lấy B1/B2 và trả kèm id để gọi được saveWord', async () => {
+        const rows = await dailyWords(dictWithCefr(), 10);
+        expect(rows.map((r) => r.headword).sort()).toEqual(['alpha', 'beta', 'gamma']);
+        expect(rows.every((r) => typeof r.id === 'number')).toBe(true);
+    });
+
+    it('loại các id đã lưu', async () => {
+        const rows = await dailyWords(dictWithCefr(), 10, [1, 3]);
+        expect(rows.map((r) => r.headword)).toEqual(['beta']);
+    });
+
+    it('tôn trọng limit', async () => {
+        expect(await dailyWords(dictWithCefr(), 2)).toHaveLength(2);
+    });
+
+    it('excludeIds rỗng thì không sinh ra mệnh đề NOT IN rỗng làm hỏng SQL', async () => {
+        await expect(dailyWords(dictWithCefr(), 1, [])).resolves.toHaveLength(1);
     });
 });

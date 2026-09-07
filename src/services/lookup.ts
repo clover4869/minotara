@@ -71,9 +71,34 @@ export async function entryByUrl(db: DbLike, url: string): Promise<{ id: number;
     return db.getFirstAsync('SELECT id, headword FROM entries WHERE url = ?', url);
 }
 
-export async function randomB1B2(db: DbLike): Promise<{ headword: string; pos: string | null; cefr: string | null } | null> {
-    return db.getFirstAsync(
-        `SELECT headword, pos, cefr FROM entries WHERE cefr IN ('B1','B2') ORDER BY RANDOM() LIMIT 1`);
+export interface DailyWord {
+    id: number;
+    headword: string;
+    pos: string | null;
+    cefr: string | null;
+}
+
+/**
+ * Từ gợi ý hằng ngày. Trả cả `id` để gọi được saveWord() — thiếu nó thì nút
+ * "thêm vào ôn tập" phải đi tra lại từng từ một lần nữa.
+ *
+ * `excludeIds` truyền vào thay vì JOIN, vì `saved_words` nằm trong user.db
+ * còn bảng này ở oxford-app.db — hai kết nối SQLite rời nhau, không JOIN
+ * được. Danh sách từ đã lưu là của riêng người dùng nên vẫn nhỏ.
+ *
+ * Tập nguồn: 2.476 entry có cefr B1/B2 (đo trên bản DB hiện tại; cả 68.832
+ * entry thì chỉ 5.917 cái có nhãn CEFR). Ở mức 10 từ/ngày thì hơn 240 ngày
+ * mới cạn, nên chưa cần chống trùng theo lịch sử.
+ */
+export async function dailyWords(db: DbLike, limit: number, excludeIds: number[] = []): Promise<DailyWord[]> {
+    const notIn = excludeIds.length
+        ? ` AND id NOT IN (${excludeIds.map(() => '?').join(',')})`
+        : '';
+    return db.getAllAsync<DailyWord>(
+        `SELECT id, headword, pos, cefr FROM entries
+         WHERE cefr IN ('B1','B2')${notIn}
+         ORDER BY RANDOM() LIMIT ?`,
+        ...excludeIds, limit);
 }
 
 /**

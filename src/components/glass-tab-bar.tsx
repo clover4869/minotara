@@ -14,7 +14,7 @@
  * from the screenshot's generic blue to the app's own brand teal.
  *
  * The glow is two stacked effects, because a single shadow reads as flat:
- *   1. a soft radial "lamp" behind the active icon
+ *   1. a rounded tint filling the active tab's cell, behind icon + label
  *   2. a hairline gradient streak along the top edge of the pill
  * (A third effect — a coloured shadow on the glyph itself — existed in the
  * original Ionicons version via `textShadow*`, but lucide icons are SVG, not
@@ -34,7 +34,7 @@ import { useEffectiveColorScheme } from '@/theme/use-palette';
 /** Per-theme glass recipe — dark glass + light glow on the dark canvas, light glass + deeper teal on the light canvas. */
 const GLASS: Record<ColorMode, {
     active: string; inactive: string; pill: string; border: string;
-    streak: string; lamp: string; blurTint: BlurTint;
+    streak: string; activeBg: string; blurTint: BlurTint;
 }> = {
     dark: {
         active: primitive.accent[400], // pops on the dark pill
@@ -42,7 +42,9 @@ const GLASS: Record<ColorMode, {
         pill: 'rgba(11, 25, 23, 0.92)', // primitive.gray[950], glassed
         border: 'rgba(255,255,255,0.14)',
         streak: 'rgba(63,175,160,0.85)',
-        lamp: 'rgba(63,175,160,0.22)',
+        // Nền của nút đang chọn. Trước là vòng tròn 44px sau icon nên phải đậm
+        // mới thấy; giờ phủ cả ô 1/4 nên cùng độ mờ đó lại quá gắt — hạ xuống.
+        activeBg: 'rgba(63,175,160,0.18)',
         blurTint: 'dark',
     },
     light: {
@@ -51,7 +53,7 @@ const GLASS: Record<ColorMode, {
         pill: 'rgba(255, 255, 255, 0.78)',
         border: 'rgba(10, 40, 38, 0.14)',
         streak: 'rgba(14,143,134,0.7)',
-        lamp: 'rgba(14,143,134,0.16)',
+        activeBg: 'rgba(14,143,134,0.13)',
         blurTint: 'light',
     },
 };
@@ -131,12 +133,22 @@ function TabItem({ label, icon: Icon, colors, isFocused, ...triggerProps }: TabT
             accessibilityRole="button"
             accessibilityState={{ selected: focused }}
         >
+            {/*
+              Nền của nút đang chọn: phủ hết ô 1/4 và bọc cả icon + nhãn.
+              Nằm ngoài Animated.View co giãn bên dưới, nếu không nó sẽ nhỏ
+              lại theo hiệu ứng nhấn và trông như nền bị rung.
+              Không scale từ 0 mà từ 0.86: một khối rộng phóng từ 0 nhìn như
+              bị bắn vào, còn 0.86 chỉ là nở nhẹ ra.
+            */}
+            <Animated.View
+                pointerEvents="none"
+                style={[styles.activeBg, {
+                    backgroundColor: colors.activeBg,
+                    opacity: glow,
+                    transform: [{ scale: glow.interpolate({ inputRange: [0, 1], outputRange: [0.86, 1] }) }],
+                }]}
+            />
             <Animated.View style={{ transform: [{ scale: press }], alignItems: 'center' }}>
-                {/* soft lamp behind the active glyph */}
-                <Animated.View
-                    pointerEvents="none"
-                    style={[styles.lamp, { backgroundColor: colors.lamp, opacity: glow, transform: [{ scale: glow }] }]}
-                />
                 <Icon
                     size={22}
                     color={focused ? colors.active : colors.inactive}
@@ -183,12 +195,15 @@ const styles = StyleSheet.create({
         top: 0, left: '12%', right: '12%',
         height: 1.5,
     },
-    row: { flexDirection: 'row', paddingVertical: 10, paddingHorizontal: 6 },
-    item: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 4 },
-    lamp: {
+    row: { flexDirection: 'row', paddingVertical: 8, paddingHorizontal: 6 },
+    item: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 7 },
+    // Phủ hết ô (flex:1 nên đúng 1/4 chiều ngang), chừa 3px mỗi bên để hai nút
+    // cạnh nhau không dính vào nhau. borderRadius 16 trên ô cao ~52 cho ra
+    // hình chữ nhật bo tròn — không phải hình viên thuốc dài.
+    activeBg: {
         position: 'absolute',
-        top: -6,
-        width: 44, height: 44, borderRadius: 22,
+        top: 0, bottom: 0, left: 3, right: 3,
+        borderRadius: 16,
     },
     label: { fontSize: 10.5, marginTop: 4, letterSpacing: 0.2 },
 });
@@ -198,4 +213,4 @@ const styles = StyleSheet.create({
  * floating bar. Hard-coding a number in each screen would drift the moment
  * the bar's height changes.
  */
-export const TAB_BAR_HEIGHT = 78;
+export const TAB_BAR_HEIGHT = 80;

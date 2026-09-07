@@ -10,8 +10,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { dictionaryReady, openDictionary, openUser } from '@/db/open';
-import { suggest, randomB1B2 } from '@/services/lookup';
-import { recentQueries, deleteRecentQuery, getSetting, setSetting } from '@/db/user';
+import { suggest, dailyWords, type DailyWord } from '@/services/lookup';
+import {
+    recentQueries, deleteRecentQuery, getSetting, setSetting, savedEntryIds, saveWord,
+} from '@/db/user';
 import type { SuggestRow } from '@/db/types';
 import { CefrBadge, IconButton, Icons, SectionLabel, UiIcon } from '@/components/dict-ui';
 import { TAB_BAR_HEIGHT } from '@/components/glass-tab-bar';
@@ -20,6 +22,9 @@ import { usePalette } from '@/theme/use-palette';
 import { component, radius, space, type as typeScale } from '@/theme/tokens';
 import type { Semantic } from '@/theme/tokens';
 
+/** Số từ gợi ý mỗi ngày. Tập B1/B2 có 2.476 từ nên 10/ngày đủ cho hơn 240 ngày. */
+const DAILY_COUNT = 10;
+
 export default function SearchScreen() {
     const t = usePalette();
     const s = useMemo(() => makeStyles(t), [t]);
@@ -27,7 +32,8 @@ export default function SearchScreen() {
     const [focused, setFocused] = useState(false);
     const [rows, setRows] = useState<SuggestRow[]>([]);
     const [recent, setRecent] = useState<string[]>([]);
-    const [wotd, setWotd] = useState<{ headword: string; pos: string | null; cefr: string | null } | null>(null);
+    const [daily, setDaily] = useState<DailyWord[]>([]);
+    const [addedAll, setAddedAll] = useState(false);
     const { dictReady, setDictReady, loadSettings } = useApp();
     const debounce = useRef<ReturnType<typeof setTimeout>>(null);
 
@@ -42,13 +48,20 @@ export default function SearchScreen() {
             const cachedDate = await getSetting(user, 'wotd_date');
             const cachedJson = await getSetting(user, 'wotd_json');
             if (cachedDate === today && cachedJson) {
-                try { setWotd(JSON.parse(cachedJson)); return; } catch { /* fall through */ }
+                try {
+                    const parsed = JSON.parse(cachedJson);
+                    // Bản cũ lưu một object; bản này lưu mảng. Bọc lại để máy
+                    // đã dùng hôm nay không mất khối gợi ý cho tới nửa đêm.
+                    const list: DailyWord[] = Array.isArray(parsed) ? parsed : [parsed];
+                    if (list.every((w) => typeof w?.id === 'number')) { setDaily(list); return; }
+                    // object cũ không có `id` → không gọi được saveWord, bỏ cache và lấy mới
+                } catch { /* cache hỏng — rơi xuống lấy mới */ }
             }
-            const row = await randomB1B2(await openDictionary());
-            if (row) {
-                setWotd(row);
+            const rows = await dailyWords(await openDictionary(), DAILY_COUNT, await savedEntryIds(user));
+            if (rows.length) {
+                setDaily(rows);
                 await setSetting(user, 'wotd_date', today);
-                await setSetting(user, 'wotd_json', JSON.stringify(row));
+                await setSetting(user, 'wotd_json', JSON.stringify(rows));
             }
         })();
     }, []);
@@ -67,7 +80,22 @@ export default function SearchScreen() {
         }, 150);
     }
 
-    const go = (q: string) => router.push(`/word/${encodeURIComponent(q)}`);
+    // `entryId` để mở đúng mục khi từ đó có nhiều loại từ (homograph); không
+    // có id thì màn chi tiết phải tự đoán và có thể mở sang mục khác.
+    const go = (q: string, entryId?: number) =>
+        (entryId != null
+            ? router.push({ pathname: '/word/[q]', params: { q, id: String(entryId) } })
+            : router.push(`/word/${encodeURIComponent(q)}`));
+
+    async function addAllToReview() {
+        const user = await openUser();
+        // saveWord() đã tự chèn srs_state với due_at = now, nên từ vào là đến
+        // hạn ôn ngay; và nó ON CONFLICT chứ không reset SRS của từ đã có.
+        for (const w of daily) {
+            await saveWord(user, { entry_id: w.id, headword: w.headword, pos: w.pos, cefr: w.cefr });
+        }
+        setAddedAll(true);
+    }
     const qNorm = query.trim().toLowerCase();
     const fallback = rows.length > 0 && !rows.some((r) =>
         r.display.toLowerCase().startsWith(qNorm) || (r.sub ?? '').toLowerCase().startsWith(qNorm));
@@ -173,10 +201,23 @@ export default function SearchScreen() {
                             </View>
                         </>
                     )}
-                    {wotd && (
+                    {daily.length > 0 && (
                         <View style={{ marginTop: space.md }}>
-                            <SectionLabel>Từ hôm nay</SectionLabel>
-                            <Pressable onPress={() => go(wotd.headword)}>
+                            <View style={s.dailyHead}>
+                                <SectionLabel>Từ hôm nay</SectionLabel>
+                                <Pressable onPress={addAllToReview} disabled={addedAll} hitSlop={8}>
+                                    <Text style={[s.dailyAdd, addedAll && { color: t.text.tertiary }]}>
+                                        {addedAll ? 'Đã thêm vào ôn tập' : `Thêm cả ${daily.length} vào ôn tập`}
+                                    </Text>
+                                </Pressable>
+                            </View>
+                            {/*
+                              Từ đầu tiên giữ thẻ gradient như trước — một từ
+                              nổi bật mỗi ngày vẫn là ý của khối này; chín từ
+                              còn lại xếp thành hàng gọn, mười thẻ gradient thì
+                              chẳng còn cái nào nổi bật nữa.
+                            */}
+                            <Pressable onPress={() => go(daily[0].headword, daily[0].id)}>
                                 {({ pressed }) => (
                                     <LinearGradient
                                         colors={[t.accent.tint, t.surface.raised]}
@@ -185,13 +226,25 @@ export default function SearchScreen() {
                                         style={[s.wotd, pressed && { opacity: 0.85 }]}
                                     >
                                         <View style={s.wotdHeadRow}>
-                                            <Text style={s.wotdWord}>{wotd.headword}</Text>
-                                            <CefrBadge level={wotd.cefr} />
+                                            <Text style={s.wotdWord}>{daily[0].headword}</Text>
+                                            <CefrBadge level={daily[0].cefr} />
                                         </View>
-                                        {wotd.pos ? <Text style={s.suggestSub}>{wotd.pos}</Text> : null}
+                                        {daily[0].pos ? <Text style={s.suggestSub}>{daily[0].pos}</Text> : null}
                                     </LinearGradient>
                                 )}
                             </Pressable>
+                            {daily.slice(1).map((w) => (
+                                <Pressable
+                                    key={w.id}
+                                    style={({ pressed }) => [s.dailyRow, pressed && { opacity: 0.6 }]}
+                                    onPress={() => go(w.headword, w.id)}
+                                >
+                                    <Text style={s.dailyWord}>{w.headword}</Text>
+                                    <CefrBadge level={w.cefr} />
+                                    <View style={{ flex: 1 }} />
+                                    {w.pos ? <Text style={s.pos}>{w.pos}</Text> : null}
+                                </Pressable>
+                            ))}
                         </View>
                     )}
                 </View>
@@ -248,5 +301,13 @@ function makeStyles(t: Semantic) {
             fontSize: typeScale.size.lg, fontWeight: typeScale.weight.semibold,
             color: t.text.primary, letterSpacing: -0.3,
         },
+        dailyHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+        dailyAdd: { fontSize: 13, color: t.accent.bg, fontWeight: typeScale.weight.semibold },
+        dailyRow: {
+            flexDirection: 'row', alignItems: 'center', gap: 8,
+            paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth,
+            borderBottomColor: t.border.subtle,
+        },
+        dailyWord: { fontSize: typeScale.size.md, color: t.text.primary },
     });
 }

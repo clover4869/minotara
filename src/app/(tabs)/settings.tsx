@@ -86,7 +86,9 @@ export default function SettingsScreen() {
                         s={s}
                     />
                 </Row>
-                <Row label="Tự phát âm khi mở từ" s={s}>
+                <Row label="Tự động phát âm"
+                    sub="Mở từ thì đọc một lần. Ôn tập thì lặp mỗi 3 giây đến khi sang thẻ khác."
+                    s={s}>
                     <Switch value={app.autoplay} onValueChange={app.setAutoplay} />
                 </Row>
                 <Row label="Cỡ chữ nội dung" s={s}>
@@ -98,19 +100,12 @@ export default function SettingsScreen() {
                     />
                 </Row>
 
-                <Text style={s.section}>Ôn tập</Text>
-                <Row label="Tự động đọc từ" sub="Lặp mỗi 3 giây đến khi chấm điểm" s={s}>
-                    <Switch value={app.reviewAutoplay} onValueChange={app.setReviewAutoplay} />
-                </Row>
-                <Row label="Giọng đọc khi ôn" sub="Dùng chung với cài đặt Phát âm" s={s}>
-                    <Segmented
-                        value={app.prefDialect}
-                        options={[{ v: 'uk', label: 'UK' }, { v: 'us', label: 'US' }]}
-                        onChange={(v) => app.setPrefDialect(v as 'uk' | 'us')}
-                        s={s}
-                    />
-                </Row>
-
+                {/*
+                  Mục "Ôn tập" cũ bị bỏ: nó chỉ chứa hai điều khiển trùng với
+                  mục Phát âm ở trên — một công tắc autoplay riêng, và một
+                  Segmented giọng đọc buộc vào đúng `prefDialect` đã có. Hai
+                  điều khiển cho cùng một giá trị, đặt tên như thể khác nhau.
+                */}
                 <Text style={s.section}>Dữ liệu</Text>
                 <LinkRow label="Xoá lịch sử tra cứu" danger s={s}
                     onPress={() => confirm('Xoá lịch sử?', 'Không thể hoàn tác.', async () => {

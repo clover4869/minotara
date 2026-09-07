@@ -12,15 +12,20 @@ export type ThemeMode = 'system' | 'light' | 'dark';
 interface AppState {
     dictReady: boolean;
     prefDialect: 'uk' | 'us';
+    /**
+     * Một công tắc cho cả hai chỗ phát âm: mở từ thì đọc một lần, ôn tập thì
+     * lặp cho tới khi sang thẻ khác. Trước đây tách thành `autoplay` và
+     * `reviewAutoplay` với nhãn "Tự phát âm khi mở từ" / "Tự động đọc từ" —
+     * hai tên gần như nhau cho hai công tắc rời, nên bật một cái rồi tưởng
+     * đã bật cả hai và kết luận là ôn tập bị lỗi audio.
+     */
     autoplay: boolean;
-    reviewAutoplay: boolean;
     fontScale: 's' | 'm' | 'l';
     themeMode: ThemeMode;
     setDictReady(v: boolean): void;
     loadSettings(): Promise<void>;
     setPrefDialect(d: 'uk' | 'us'): Promise<void>;
     setAutoplay(v: boolean): Promise<void>;
-    setReviewAutoplay(v: boolean): Promise<void>;
     setFontScale(v: 's' | 'm' | 'l'): Promise<void>;
     setThemeMode(v: ThemeMode): Promise<void>;
 }
@@ -31,7 +36,6 @@ export const useApp = create<AppState>((set) => ({
     dictReady: false,
     prefDialect: 'uk',
     autoplay: false,
-    reviewAutoplay: false,
     fontScale: 'm',
     themeMode: 'system',
     setDictReady: (v) => set({ dictReady: v }),
@@ -41,8 +45,10 @@ export const useApp = create<AppState>((set) => ({
         const tm = await getSetting(db, 'theme_mode');
         set({
             prefDialect: (await getSetting(db, 'pref_dialect')) === 'us' ? 'us' : 'uk',
-            autoplay: (await getSetting(db, 'autoplay')) === '1',
-            reviewAutoplay: (await getSetting(db, 'review_autoplay')) === '1',
+            // Máy nào từng bật riêng "Tự động đọc từ" khi ôn thì vẫn được kế
+            // thừa, khỏi phải đi bật lại sau khi hai công tắc gộp làm một.
+            autoplay: (await getSetting(db, 'autoplay')) === '1'
+                || (await getSetting(db, 'review_autoplay')) === '1',
             fontScale: fs === 's' || fs === 'l' ? fs : 'm',
             themeMode: tm === 'light' || tm === 'dark' ? tm : 'system',
         });
@@ -54,10 +60,6 @@ export const useApp = create<AppState>((set) => ({
     setAutoplay: async (v) => {
         set({ autoplay: v });
         await setSetting(await openUser(), 'autoplay', v ? '1' : '0');
-    },
-    setReviewAutoplay: async (v) => {
-        set({ reviewAutoplay: v });
-        await setSetting(await openUser(), 'review_autoplay', v ? '1' : '0');
     },
     setFontScale: async (v) => {
         set({ fontScale: v });

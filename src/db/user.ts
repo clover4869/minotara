@@ -125,6 +125,12 @@ export async function saveWord(
 export const unsaveWord = (db: DbLike, entryId: number) =>
     db.runAsync('DELETE FROM saved_words WHERE entry_id = ?', entryId);
 
+/** Chỉ id, để Trang chủ loại từ đã lưu khỏi gợi ý mà không phải nạp cả hàng. */
+export async function savedEntryIds(db: DbLike): Promise<number[]> {
+    const rows = await db.getAllAsync<{ entry_id: number }>('SELECT entry_id FROM saved_words');
+    return rows.map((r) => r.entry_id);
+}
+
 export type SavedOrder = 'recent' | 'az' | 'due' | 'cefr';
 
 export async function listSaved(db: DbLike, order: SavedOrder = 'recent'): Promise<SavedWord[]> {
@@ -161,10 +167,19 @@ export async function updateUserMeaning(db: DbLike, entryId: number, meaning: st
 export const clearViCache = (db: DbLike) => db.runAsync('DELETE FROM vi_cache');
 
 // ---------------------------------------------------------------- image search cache
-export async function getCachedImages(db: DbLike, query: string, page: number): Promise<string | null> {
-    const row = await db.getFirstAsync<{ json: string }>(
-        'SELECT json FROM image_cache WHERE query = ? AND page = ?', query, page);
-    return row?.json ?? null;
+export async function getCachedImages(
+    db: DbLike, query: string, page: number, maxAgeMs?: number,
+): Promise<string | null> {
+    const row = await db.getFirstAsync<{ json: string; fetched_at: string | null }>(
+        'SELECT json, fetched_at FROM image_cache WHERE query = ? AND page = ?', query, page);
+    if (!row) return null;
+    if (maxAgeMs != null) {
+        // Hàng cũ có thể không có fetched_at hợp lệ — coi như đã hết hạn thì
+        // an toàn hơn là giữ mãi một kết quả không biết lấy từ bao giờ.
+        const at = row.fetched_at ? Date.parse(row.fetched_at) : NaN;
+        if (!Number.isFinite(at) || Date.now() - at > maxAgeMs) return null;
+    }
+    return row.json;
 }
 export const cacheImages = (db: DbLike, query: string, page: number, json: string) =>
     db.runAsync(
