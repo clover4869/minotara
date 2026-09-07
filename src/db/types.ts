@@ -86,16 +86,41 @@ function asXref(x: any): { text: string; url: string | null } | null {
     return { text, url: x.url ?? null };
 }
 
+/**
+ * `entries.data` lưu `audio_mp3` dạng RÚT GỌN — cắt bỏ tiền tố này, vì nó lặp
+ * y hệt ở hơn 130k URL và một mình nó chiếm ~7MB của file người dùng phải tải.
+ * Ghép lại ngay lúc parse, nên mọi thứ phía sau (`playUrl`, cache key SHA-256,
+ * UI) không hề biết URL từng bị rút gọn.
+ */
+const AUDIO_PREFIX = 'https://www.oxfordlearnersdictionaries.com/media/english/';
+
+/**
+ * URL đã tuyệt đối thì trả nguyên. Nhờ nhánh này, máy nào đã tải bản DB cũ
+ * (lưu URL đầy đủ) vẫn chạy bình thường — đổi cách lưu không bắt ai tải lại.
+ */
+function absAudio(u: unknown): string | null {
+    if (typeof u !== 'string' || !u) return null;
+    return /^https?:\/\//.test(u) ? u : AUDIO_PREFIX + u;
+}
+
+function rehydratePronunciations(p: any): EntryData['pronunciations'] {
+    if (!p) return {};
+    const one = (x: any) => (x ? { phon: x.phon ?? null, audio_mp3: absAudio(x.audio_mp3) } : null);
+    return { uk: one(p.uk), us: one(p.us) };
+}
+
 export function parseEntryData(json: string): EntryData {
     const d = JSON.parse(json);
     return {
+        // word/pos/cefr không còn được lưu trong data (đã có sẵn thành cột của
+        // bảng entries) — giữ `?? null` để bản DB cũ vẫn parse được.
         word: d.word ?? null,
         homograph: d.homograph ?? d.hom ?? null,
         pos: d.pos ?? null,
         cefr: d.cefr ?? null,
         grammar: d.grammar ?? null,
         labels: d.labels ?? null,
-        pronunciations: d.pronunciations ?? {},
+        pronunciations: rehydratePronunciations(d.pronunciations),
         senses: (d.senses ?? []).map((s: any) => ({
             ...s,
             synonyms: s.synonyms ?? [],

@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import Database from 'better-sqlite3';
-import type { DbLike } from '../src/db/types';
+import { parseEntryData, type DbLike } from '../src/db/types';
 import { lookup, suggest, normalizeQuery, initialEntryIndex, formsOfEntry, groupFormOf } from '../src/services/lookup';
 import { parseImportText, shouldSuggestTemplate } from '../src/services/import-parser';
 import { matchImport } from '../src/services/import-matcher';
-import { grade, buildSession, buildAheadSession, dueBoxCounts, SessionQueue, nextBox, maskHeadword, type SrsState } from '../src/services/srs';
+import { grade, buildSession, buildAheadSession, dueBoxCounts, SessionQueue, boxFromStability, previewIntervals, maskHeadword, type SrsState } from '../src/services/srs';
 import { migrateUserDb, saveWord, savedStats, getSetting, setSetting, nextDueAt } from '../src/db/user';
 import { getViMeanings, meaningsForPos, meaningsOtherPos, normalizeViPos } from '../src/services/vi-meaning';
+import { searchImages } from '../src/services/image-search';
 
 /** better-sqlite3 wrapped to look like expo-sqlite's async API. */
 function wrap(db: Database.Database): DbLike {
@@ -208,25 +209,45 @@ describe('SRS scheduler', () => {
     const base = (over: Partial<SrsState>): SrsState =>
         ({ entry_id: 1, box: 1, due_at: '2026-08-20T00:00:00Z', streak: 0, last_result: 1, ...over });
 
-    it('box transitions match the spec table', () => {
-        expect(nextBox(1, true)).toBe(2);
-        expect(nextBox(5, true)).toBe(5);
-        expect(nextBox(3, false)).toBe(1);
-        expect(nextBox(4, false)).toBe(2);
-        expect(nextBox(5, false)).toBe(2);
+    it('boxFromStability buckets FSRS stability into the same day thresholds the old Leitner boxes used', () => {
+        expect(boxFromStability(null)).toBe(1);
+        expect(boxFromStability(1.5)).toBe(1);
+        expect(boxFromStability(3)).toBe(2);
+        expect(boxFromStability(5)).toBe(3);
+        expect(boxFromStability(10)).toBe(4);
+        expect(boxFromStability(20)).toBe(5);
     });
-    it('grade sets due_at = interval (fuzz=1 at rng .5) and updates streak', () => {
-        const g = grade(base({ box: 2, streak: 3 }), true, now, rngMid);
-        expect(g.box).toBe(3);
-        expect(g.due_at).toBe(new Date(now.getTime() + 4 * 86400000).toISOString());
+    it('grade (FSRS): a correct answer schedules a future review and increments streak', () => {
+        const g = grade(base({ box: 1, streak: 3 }), true, now, rngMid);
+        expect(new Date(g.due_at).getTime()).toBeGreaterThan(now.getTime());
         expect(g.streak).toBe(4);
+        expect(g.last_result).toBe(1);
+        expect(g.stability).toBeGreaterThan(0);
     });
-    it('fuzz stays within ±15%', () => {
+    it('grade (FSRS): repeated correct answers grow the interval (spaced repetition)', () => {
+        const g1 = grade(base({}), true, now, rngMid);
+        const now2 = new Date(g1.due_at);
+        const g2 = grade(g1, true, now2, rngMid);
+        const interval1 = new Date(g1.due_at).getTime() - now.getTime();
+        const interval2 = new Date(g2.due_at).getTime() - now2.getTime();
+        expect(interval2).toBeGreaterThan(interval1);
+    });
+    it('grade (FSRS): a wrong answer resets streak and schedules a shorter interval than a correct one', () => {
+        const wrong = grade(base({}), false, now, rngMid);
+        const right = grade(base({}), true, now, rngMid);
+        expect(wrong.streak).toBe(0);
+        expect(wrong.last_result).toBe(0);
+        expect(new Date(wrong.due_at).getTime()).toBeLessThan(new Date(right.due_at).getTime());
+    });
+    it('fuzz stays within ±15% of FSRS\'s own unfuzzed interval', () => {
+        const { good } = previewIntervals(base({}), now);
+        const baseline = good.getTime() - now.getTime();
         const lo = grade(base({}), true, now, () => 0);
         const hi = grade(base({}), true, now, () => 0.999999);
-        const days = (s: SrsState) => (new Date(s.due_at).getTime() - now.getTime()) / 86400000;
-        expect(days(lo)).toBeCloseTo(2 * 0.85, 5);
-        expect(days(hi)).toBeGreaterThan(2 * 1.14);
+        const loMs = new Date(lo.due_at).getTime() - now.getTime();
+        const hiMs = new Date(hi.due_at).getTime() - now.getTime();
+        expect(Math.abs(loMs - baseline * 0.85)).toBeLessThan(1);
+        expect(hiMs).toBeGreaterThan(baseline * 1.14);
     });
     it('buildSession: due low-box first, new capped at 20, ceiling 40', () => {
         const cards: SrsState[] = [];
@@ -384,6 +405,69 @@ describe('vi-meaning', () => {
     });
 });
 
+describe('image-search (DuckDuckGo)', () => {
+    const htmlWithToken = '<html><script>vqd="4-12345"</script></html>';
+    const jsonResults = { results: [
+        { image: 'https://x/full.jpg', thumbnail: 'https://x/thumb.jpg', title: 'Cat', source: 'Bing', url: 'https://source/cat', width: 100, height: 100 },
+    ] };
+
+    it('fetches the vqd token then results, caches, and serves from cache on the next call', async () => {
+        const user = await makeUser();
+        let tokenCalls = 0;
+        let resultCalls = 0;
+        const fakeFetch = (async (url: string) => {
+            if (String(url).includes('/i.js')) {
+                resultCalls++;
+                return { ok: true, json: async () => jsonResults } as any;
+            }
+            tokenCalls++;
+            return { ok: true, text: async () => htmlWithToken } as any;
+        }) as any;
+        const a = await searchImages(user, 'Cat', 1, fakeFetch);
+        expect(a.fromCache).toBe(false);
+        expect(a.results).toHaveLength(1);
+        expect(a.results[0].image).toBe('https://x/full.jpg');
+        expect(tokenCalls).toBe(1);
+        expect(resultCalls).toBe(1);
+
+        const b = await searchImages(user, 'cat', 1, (() => { throw new Error('no network'); }) as any);
+        expect(b.fromCache).toBe(true);
+        expect(b.results).toHaveLength(1);
+    });
+
+    it('fails soft (after 1 retry) when no vqd token can be found', async () => {
+        const user = await makeUser();
+        let calls = 0;
+        const fakeFetch = (async () => {
+            calls++;
+            return { ok: true, text: async () => '<html>no token here</html>' } as any;
+        }) as any;
+        const r = await searchImages(user, 'dog', 1, fakeFetch);
+        expect(r.failed).toBe(true);
+        expect(r.results).toEqual([]);
+        expect(calls).toBe(2);
+    });
+
+    it('fails soft when the results fetch throws', async () => {
+        const user = await makeUser();
+        const fakeFetch = (async (url: string) => {
+            if (String(url).includes('/i.js')) throw new Error('network down');
+            return { ok: true, text: async () => htmlWithToken } as any;
+        }) as any;
+        const r = await searchImages(user, 'bird', 1, fakeFetch);
+        expect(r.failed).toBe(true);
+        expect(r.results).toEqual([]);
+    });
+
+    it('empty query returns no results without fetching', async () => {
+        const user = await makeUser();
+        const fakeFetch = (() => { throw new Error('should not be called'); }) as any;
+        const r = await searchImages(user, '   ', 1, fakeFetch);
+        expect(r.results).toEqual([]);
+        expect(r.failed).toBe(false);
+    });
+});
+
 describe('form-of grouping + mask', () => {
     it('walked V2+V3 with same IPA collapse to one row', async () => {
         const r = await lookup(dict, 'walked');
@@ -436,5 +520,40 @@ describe('saved stats + import homographs', () => {
         const { items } = parseImportText('run\n');
         const r = await matchImport(dict, user, items);
         expect(r.matched[0].homographs.length).toBeGreaterThanOrEqual(2);
+    });
+});
+
+describe('parseEntryData — ghép lại URL audio đã rút gọn', () => {
+    const PREFIX = 'https://www.oxfordlearnersdictionaries.com/media/english/';
+
+    it('ghép tiền tố vào URL rút gọn (dạng lưu trong DB đã cắt mỡ)', () => {
+        const d = parseEntryData(JSON.stringify({
+            senses: [],
+            pronunciations: { uk: { phon: '/ˈrɪvə(r)/', audio_mp3: 'uk_pron/r/riv/river/river__gb_1.mp3' } },
+        }));
+        expect(d.pronunciations?.uk?.audio_mp3).toBe(PREFIX + 'uk_pron/r/riv/river/river__gb_1.mp3');
+        expect(d.pronunciations?.uk?.phon).toBe('/ˈrɪvə(r)/');
+    });
+
+    it('giữ nguyên URL tuyệt đối — máy đã tải DB bản cũ vẫn phát được', () => {
+        const full = PREFIX + 'us_pron/r/riv/river/river__us_3.mp3';
+        const d = parseEntryData(JSON.stringify({ senses: [], pronunciations: { us: { phon: null, audio_mp3: full } } }));
+        expect(d.pronunciations?.us?.audio_mp3).toBe(full);
+    });
+
+    it('không có audio thì trả null chứ không ghép ra URL rác', () => {
+        const d = parseEntryData(JSON.stringify({
+            senses: [], pronunciations: { uk: { phon: '/x/', audio_mp3: null }, us: null },
+        }));
+        expect(d.pronunciations?.uk?.audio_mp3).toBeNull();
+        expect(d.pronunciations?.us).toBeNull();
+    });
+
+    it('data không còn word/pos/cefr vẫn parse được (chúng đã là cột của entries)', () => {
+        const d = parseEntryData(JSON.stringify({ senses: [{ definition: 'x', examples: [] }], homograph: 2 }));
+        expect(d.word).toBeNull();
+        expect(d.pos).toBeNull();
+        expect(d.homograph).toBe(2);
+        expect(d.senses).toHaveLength(1);
     });
 });
