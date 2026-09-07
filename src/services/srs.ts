@@ -92,6 +92,12 @@ export function boxCounts(states: SrsState[]): number[] {
     return c;
 }
 
+/** 05A-01: the true due count + box distribution, uncapped — NOT `buildSession()`, which caps at 40/20 for gameplay and would undercount a real backlog. */
+export function dueBoxCounts(all: SrsState[], now: Date): number[] {
+    const nowIso = now.toISOString();
+    return boxCounts(all.filter((s) => !isNewCard(s) && s.due_at <= nowIso));
+}
+
 /** 05B-02: hide the headword inside an example on the meaning→word face. */
 export function maskHeadword(text: string, headword: string): string {
     if (!headword.trim()) return text;
@@ -120,6 +126,11 @@ export class SessionQueue {
     readonly missed = new Set<number>();
     readonly total: number;
     answered = 0;
+
+    /** Distinct cards still in the queue (requeues from learning-steps/reinforcement count once) — use this for progress, not `answered`, which counts every attempt and can exceed `total`. */
+    get remaining(): number {
+        return new Set(this.queue.map((c) => c.entry_id)).size;
+    }
 
     constructor(
         cards: SrsState[],

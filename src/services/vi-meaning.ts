@@ -90,7 +90,7 @@ export function meaningsForPos(all: ViMeaning[], entryPos: string | null): ViMea
     const p = entryPos.toLowerCase();
     const matched = all.filter((m) => m.pos && p.startsWith(m.pos));
     const unposed = all.filter((m) => !m.pos);
-    return matched.length ? [...matched, ...unposed] : all;
+    return [...matched, ...unposed];
 }
 
 /** POS that does not match the open tab — render under "Nghĩa khác". */

@@ -10,25 +10,8 @@ import {
     Layers, Settings, CircleX, Check, FileDown, CircleAlert,
 } from 'lucide-react-native';
 import { playUrl } from '@/services/audio';
-import { icon as iconTokens, primitive, semantic } from '@/theme/tokens';
+import { icon as iconTokens, primitive } from '@/theme/tokens';
 import { usePalette } from '@/theme/use-palette';
-
-/** Light-mode aliases so unmigrated screens stay on Porcelain, not template blue. */
-export const C = {
-    border: semantic.light.border.default,
-    soft: semantic.light.surface.raised,
-    muted: semantic.light.text.tertiary,
-    secondary: semantic.light.text.secondary,
-    accent: semantic.light.accent.bg,
-    accentSoft: semantic.light.accent.tint,
-    accentText: primitive.accent[700],
-    success: semantic.light.text.success,
-    successSoft: semantic.light.status.successBg,
-    danger: semantic.light.text.error,
-    dangerSoft: semantic.light.status.errorBg,
-    warning: semantic.light.text.warning,
-    warningSoft: semantic.light.status.warningBg,
-};
 
 export const Icons = {
     Volume2, Bookmark, BookmarkCheck, ArrowLeft, Search,

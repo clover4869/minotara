@@ -1,8 +1,9 @@
 /**
- * Minotara token spine — Porcelain preset.
+ * Minotara token spine — Teal Cow preset (derived from assets/icons/icon.png +
+ * assets/icons/COLORS.md, the icon's own documented brand palette).
  * 3 layers: primitive → semantic → component.
- * sRGB hex for React Native StyleSheet (OKLCH source in .ui-craft/tokens.md).
- * Do not use raw hex in screens; import from here.
+ * Dark mode has no source spec (COLORS.md is light-only) — those values are
+ * derived by the same "lighten + keep hue" pattern the previous preset used.
  */
 import type { TextStyle, ViewStyle } from 'react-native';
 
@@ -11,33 +12,37 @@ export type ColorMode = 'light' | 'dark';
 /** Layer 1 — named for the value, not the role. */
 export const primitive = {
     gray: {
-        50: '#FBFAF7',
-        100: '#F6F3EF',
-        200: '#E7E4DF',
-        300: '#D1CDC7',
-        400: '#A39D96',
-        500: '#807971',
-        600: '#746D65',
-        700: '#4E463F',
-        800: '#2E2721',
-        900: '#201914',
-        950: '#130F0A',
+        50: '#FCFEFE',
+        100: '#EEF7F5', // COLORS.md `soft`
+        200: '#D6E7E5', // COLORS.md `border`
+        300: '#BFD8D5',
+        400: '#7E9694', // COLORS.md `muted`
+        500: '#5F7876',
+        600: '#4C6663', // COLORS.md `secondary`
+        700: '#39504D',
+        800: '#1F3532',
+        900: '#122624',
+        950: '#0B1917',
     },
     accent: {
-        50: '#FBF0EA',
-        100: '#F6DCD0',
-        200: '#EBB7A0',
-        300: '#E39678',
-        400: '#DB7A58',
-        500: '#C06240',
-        600: '#AF5331',
-        700: '#944123',
-        800: '#6F311A',
-        900: '#4A2012',
+        50: '#EAF7F5',
+        100: '#D2EEEA',
+        200: '#A8DDD5',
+        300: '#79C9BE',
+        400: '#3FAFA0',
+        500: '#0E8F86', // COLORS.md `accent`
+        600: '#0A6B64', // COLORS.md `accentText`
+        700: '#0F5F5C', // COLORS.md `primary`
+        800: '#0A423F',
+        900: '#062E2C',
     },
-    green: { 400: '#5AA56A', 600: '#36884D' },
-    amber: { 400: '#D4A44A', 600: '#BB881A' },
+    /** From the question-mark mat in the icon — not in COLORS.md, sampled from icon.png. Used for success/"remembered" instead of a generic gray-green. */
+    green: { 400: '#9BD66E', 600: '#5DA84D' },
+    /** Nudged toward COLORS.md `brandYellow` (#F8C140, the book's cover). */
+    amber: { 400: '#FFD874', 600: '#D9A72A' },
     red: { 400: '#D46555', 600: '#BD3931' },
+    /** COLORS.md `brandOrange` — reserved for future badges/highlights (cow/book accent), not wired into semantic yet. */
+    orange: { 500: '#EA8336' },
 } as const;
 
 export const space = {
@@ -64,7 +69,7 @@ export const type = {
 
 export const radius = {
     sm: 2,
-    md: 10, // inputs, badges — Porcelain
+    md: 10, // inputs, badges
     lg: 14, // cards
     xl: 20, // modals / sheets
     full: 9999,
@@ -117,9 +122,9 @@ export const semantic = {
         surface: {
             canvas: primitive.gray[50],
             raised: primitive.gray[100],
-            overlay: '#FFFCF8',
+            overlay: '#FFFFFF',
             sunken: primitive.gray[200],
-            inverse: primitive.gray[900],
+            inverse: primitive.accent[700], // primary buttons/active chips — COLORS.md `primary`, not neutral black
         },
         text: {
             primary: primitive.gray[900],
@@ -133,9 +138,9 @@ export const semantic = {
             error: primitive.red[600],
         },
         border: {
-            subtle: 'rgba(32, 25, 20, 0.06)',
-            default: 'rgba(32, 25, 20, 0.12)',
-            strong: 'rgba(32, 25, 20, 0.24)',
+            subtle: 'rgba(10, 40, 38, 0.06)',
+            default: 'rgba(10, 40, 38, 0.12)',
+            strong: 'rgba(10, 40, 38, 0.24)',
             focus: primitive.accent[500],
             error: primitive.red[400],
         },
@@ -144,55 +149,55 @@ export const semantic = {
             bgHover: primitive.accent[600],
             bgActive: primitive.accent[700],
             text: primitive.gray[50],
-            tint: 'rgba(192, 98, 64, 0.09)',
+            tint: 'rgba(14, 143, 134, 0.09)',
         },
         status: {
-            successBg: '#E2F9E2',
-            warningBg: '#FFF1D9',
+            successBg: '#E6F5DC',
+            warningBg: '#FFF3D6',
             errorBg: '#FFEBE8',
         },
         elevation: {
-            raised: layeredShadow('#3A2A1C', 0.06, 1, 2, 1),
-            overlay: layeredShadow('#3A2A1C', 0.10, 8, 20, 8),
+            raised: layeredShadow('#0A2422', 0.06, 1, 2, 1),
+            overlay: layeredShadow('#0A2422', 0.10, 8, 20, 8),
         },
         hairline: false,
     },
     dark: {
         surface: {
-            canvas: primitive.gray[950], // tinted near-black, not #000
-            raised: '#1C1712',
-            overlay: '#25211B',
-            sunken: '#0A0704',
-            inverse: primitive.gray[50],
+            canvas: primitive.gray[950],
+            raised: '#132825',
+            overlay: '#1A302D',
+            sunken: '#060F0E',
+            inverse: '#6CC6BD', // COLORS.md `brandTeal` itself — the icon's signature color, popping on a dark canvas
         },
         text: {
-            primary: '#EBE7E2', // not #fff — OLED halation
+            primary: '#E4F3F0', // not pure white — OLED halation
             secondary: primitive.gray[400],
             tertiary: primitive.gray[500],
             onAccent: primitive.gray[950],
-            onInverse: primitive.gray[900],
-            link: '#DC855D',
-            success: '#7CB88A',
-            warning: '#D4A44A',
-            error: '#D46555',
+            onInverse: primitive.accent[900],
+            link: '#5CC9BC',
+            success: primitive.green[400],
+            warning: primitive.amber[400],
+            error: primitive.red[400],
         },
         border: {
-            subtle: 'rgba(255, 248, 240, 0.06)',
-            default: 'rgba(255, 248, 240, 0.12)',
-            strong: 'rgba(255, 248, 240, 0.24)',
-            focus: '#DC855D',
+            subtle: 'rgba(228, 243, 240, 0.06)',
+            default: 'rgba(228, 243, 240, 0.12)',
+            strong: 'rgba(228, 243, 240, 0.24)',
+            focus: '#5CC9BC',
             error: primitive.red[400],
         },
         accent: {
-            bg: '#DC855D', // chroma down vs light
-            bgHover: primitive.accent[400],
-            bgActive: primitive.accent[300],
+            bg: '#4FC1B4', // distinct from surface.inverse's brighter brandTeal, so links/small accents read differently from big CTA buttons
+            bgHover: primitive.accent[300],
+            bgActive: primitive.accent[200],
             text: primitive.gray[950],
-            tint: 'rgba(220, 133, 93, 0.12)',
+            tint: 'rgba(79, 193, 180, 0.12)',
         },
         status: {
-            successBg: 'rgba(54, 136, 77, 0.18)',
-            warningBg: 'rgba(187, 136, 26, 0.18)',
+            successBg: 'rgba(93, 168, 77, 0.18)',
+            warningBg: 'rgba(217, 167, 42, 0.18)',
             errorBg: 'rgba(189, 57, 49, 0.18)',
         },
         elevation: {

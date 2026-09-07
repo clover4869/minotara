@@ -14,13 +14,13 @@ export interface HomographOption {
 }
 
 export interface MatchedImport {
-    inputWord: string;          // what the user typed ("ran")
+    inputWords: string[];       // every input word that resolved here, e.g. ["ran", "run"]
     meaning: string | null;
     entry_id: number;
     headword: string;           // what will be saved ("run")
     pos: string | null;
     cefr: string | null;
-    viaForm: boolean;           // true when resolved through a form
+    viaForm: boolean;           // true when at least one input resolved through a form
     alreadySaved: boolean;
     homographs: HomographOption[]; // extra POS tabs; empty when unambiguous
 }
@@ -37,7 +37,7 @@ export async function matchImport(
 ): Promise<ImportMatchResult> {
     const matched: MatchedImport[] = [];
     const unmatched: string[] = [];
-    const takenEntry = new Set<number>(); // two inputs resolving to same entry → keep first
+    const byEntry = new Map<number, MatchedImport>(); // two inputs resolving to same entry → merge, don't drop
 
     for (const item of items) {
         const hits = await dict.getAllAsync<{
@@ -63,23 +63,32 @@ export async function matchImport(
         if (!entries.length) { unmatched.push(item.word); continue; }
 
         const primary = entries[0];
-        if (takenEntry.has(primary.entry_id)) continue;
-        takenEntry.add(primary.entry_id);
+        const viaForm = hits[0]?.kind === 'form';
+
+        const existing = byEntry.get(primary.entry_id);
+        if (existing) {
+            existing.inputWords.push(item.word);
+            existing.viaForm = existing.viaForm || viaForm;
+            if (!existing.meaning && item.meaning) existing.meaning = item.meaning;
+            continue;
+        }
 
         const saved = await user.getFirstAsync(
             'SELECT 1 FROM saved_words WHERE entry_id = ?', primary.entry_id);
 
-        matched.push({
-            inputWord: item.word,
+        const row: MatchedImport = {
+            inputWords: [item.word],
             meaning: item.meaning,
             entry_id: primary.entry_id,
             headword: primary.headword,
             pos: primary.pos,
             cefr: primary.cefr,
-            viaForm: hits[0]?.kind === 'form',
+            viaForm,
             alreadySaved: !!saved,
             homographs: entries,
-        });
+        };
+        byEntry.set(primary.entry_id, row);
+        matched.push(row);
     }
     return { matched, unmatched };
 }

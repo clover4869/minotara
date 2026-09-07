@@ -4,8 +4,8 @@ import type { DbLike } from '../src/db/types';
 import { lookup, suggest, normalizeQuery, initialEntryIndex, formsOfEntry, groupFormOf } from '../src/services/lookup';
 import { parseImportText, shouldSuggestTemplate } from '../src/services/import-parser';
 import { matchImport } from '../src/services/import-matcher';
-import { grade, buildSession, buildAheadSession, SessionQueue, nextBox, maskHeadword, type SrsState } from '../src/services/srs';
-import { migrateUserDb, saveWord, savedStats, getSetting, setSetting } from '../src/db/user';
+import { grade, buildSession, buildAheadSession, dueBoxCounts, SessionQueue, nextBox, maskHeadword, type SrsState } from '../src/services/srs';
+import { migrateUserDb, saveWord, savedStats, getSetting, setSetting, nextDueAt } from '../src/db/user';
 import { getViMeanings, meaningsForPos, meaningsOtherPos, normalizeViPos } from '../src/services/vi-meaning';
 
 /** better-sqlite3 wrapped to look like expo-sqlite's async API. */
@@ -15,6 +15,7 @@ function wrap(db: Database.Database): DbLike {
         getFirstAsync: async (sql, ...p) => (db.prepare(sql).get(...p) ?? null) as any,
         runAsync: async (sql, ...p) => ({ changes: db.prepare(sql).run(...p).changes }),
         execAsync: async (sql) => { db.exec(sql); },
+        closeAsync: async () => { db.close(); },
     };
 }
 
@@ -50,6 +51,7 @@ function makeDict(): DbLike {
     ie.run(4, 'walk', 'verb', 'A1', data('walk', 'verb', 'move on foot'));
     ie.run(5, 'read', 'verb', 'A1', data('read', 'verb', 'look and comprehend'));
     ie.run(6, 'sheep', 'noun', 'A2', data('sheep', 'noun', 'woolly animal'));
+    ie.run(7, 'foo', 'verb', 'A1', data('foo', 'verb', 'placeholder verb'));
 
     const inf = db.prepare(`INSERT INTO forms (form, form_type, ipa_uk, ipa_us, lemma, lemma_pos, entry_id, source)
         VALUES (?,?,?,?,?,?,?,'test')`);
@@ -62,6 +64,7 @@ function makeDict(): DbLike {
     inf.run('read', 'past_participle', '/red/', '/red/', 'read', 'verb', 5);
     inf.run('sheep', 'plural', '/ʃiːp/', '/ʃiːp/', 'sheep', 'noun', 6);
     inf.run('runner', 'other', null, null, 'run', 'verb', 1); // derivation — must be hidden
+    inf.run('foobar', 'weird_new_type', '/x/', '/x/', 'foo', 'verb', 7); // form_type with no form_type_label row yet
 
     const si = db.prepare('INSERT INTO search_index VALUES (?,?,?,?,?)');
     si.run('run', 'headword', 1, 'run', 'verb');
@@ -119,6 +122,12 @@ describe('lookup — 4 cases of SCR-02', () => {
         const table = await formsOfEntry(dict, 1);
         expect(table.some((f) => f.form_type === 'other')).toBe(false);
     });
+    it('formsOfEntry keeps a row even when form_type_label has no entry for it (LEFT JOIN, not INNER)', async () => {
+        const table = await formsOfEntry(dict, 7);
+        const row = table.find((f) => f.form === 'foobar');
+        expect(row).toBeTruthy();
+        expect(row!.label_vi).toBeNull();
+    });
     it('homograph tab: arriving via form opens the verb tab', async () => {
         const r = await lookup(dict, 'run');
         expect(r.entries).toHaveLength(2);
@@ -172,11 +181,23 @@ describe('import matcher', () => {
         const { items } = parseImportText('ran, chạy\nwalked\nteh\n');
         const r = await matchImport(dict, user, items);
         expect(r.unmatched).toEqual(['teh']);
-        const ran = r.matched.find((m) => m.inputWord === 'ran')!;
+        const ran = r.matched.find((m) => m.inputWords.includes('ran'))!;
         expect(ran.headword).toBe('run');
         expect(ran.viaForm).toBe(true);
         expect(ran.meaning).toBe('chạy');
-        expect(r.matched.find((m) => m.inputWord === 'walked')!.alreadySaved).toBe(true);
+        expect(r.matched.find((m) => m.inputWords.includes('walked'))!.alreadySaved).toBe(true);
+    });
+
+    it('two inputs resolving to the same entry are merged, not dropped', async () => {
+        const user = await makeUser();
+        const { items } = parseImportText('ran\nrun, chạy nhanh\n');
+        const r = await matchImport(dict, user, items);
+        expect(r.unmatched).toEqual([]);
+        expect(r.matched).toHaveLength(1);
+        expect(r.matched[0].entry_id).toBe(1);
+        expect(r.matched[0].inputWords).toEqual(['ran', 'run']);
+        expect(r.matched[0].viaForm).toBe(true); // "ran" resolved via a form
+        expect(r.matched[0].meaning).toBe('chạy nhanh'); // adopted from "run" since "ran" had none
     });
 });
 
@@ -249,6 +270,25 @@ describe('SRS scheduler', () => {
         expect(q.graded[0].box).toBe(1);
         expect(q.graded[0].last_result).toBe(0);
     });
+    it('remaining tracks distinct cards left, not attempts made — never lets progress exceed total', () => {
+        const q = new SessionQueue([base({ entry_id: 7, last_result: null })], now, rngMid);
+        expect(q.remaining).toBe(1);
+        q.answer(true); // graduation needs 2 in-session corrects — card requeued
+        expect(q.answered).toBe(1);
+        expect(q.remaining).toBe(1); // still 1 distinct card left, not "done" yet
+        q.answer(true);
+        expect(q.answered).toBe(2); // more attempts than the single card in this session
+        expect(q.remaining).toBe(0); // but remaining correctly reflects it's actually done
+        expect(q.total - q.remaining).toBeLessThanOrEqual(q.total);
+    });
+    it('dueBoxCounts counts the true due backlog, uncapped by the 40/20 session limits, excluding new cards', () => {
+        const cards: SrsState[] = [];
+        for (let i = 0; i < 50; i++) cards.push(base({ entry_id: i, box: 1, due_at: '2026-08-19T00:00:00Z' }));
+        for (let i = 100; i < 110; i++) cards.push(base({ entry_id: i, last_result: null })); // new, not due
+        const counts = dueBoxCounts(cards, now);
+        expect(counts[0]).toBe(50); // all 50 due box-1 cards counted, not capped at 40
+        expect(counts.reduce((a, b) => a + b, 0)).toBe(50); // new cards excluded entirely
+    });
 });
 
 // ================================================================ user db + vi
@@ -268,6 +308,17 @@ describe('user db', () => {
         expect(await getSetting(user, 'pref_dialect')).toBe('uk');
         await setSetting(user, 'pref_dialect', 'us');
         expect(await getSetting(user, 'pref_dialect')).toBe('us');
+    });
+    it('nextDueAt reports how many cards share the next due date, not just the date', async () => {
+        const user = await makeUser();
+        await saveWord(user, { entry_id: 1, headword: 'run' });
+        await saveWord(user, { entry_id: 2, headword: 'run' });
+        await saveWord(user, { entry_id: 4, headword: 'walk' });
+        await user.runAsync("UPDATE srs_state SET due_at = '2099-01-02T00:00:00.000Z' WHERE entry_id IN (1,2)");
+        await user.runAsync("UPDATE srs_state SET due_at = '2099-01-05T00:00:00.000Z' WHERE entry_id = 4");
+        const next = await nextDueAt(user);
+        expect(next?.due_at).toBe('2099-01-02T00:00:00.000Z');
+        expect(next?.count).toBe(2);
     });
 });
 
@@ -304,6 +355,19 @@ describe('vi-meaning', () => {
         const forNoun = meaningsForPos(ms as any, 'noun');
         expect(forNoun.map((m) => m.definition)).toEqual(['a', 'c']);
         expect(meaningsOtherPos(ms as any, 'noun').map((m) => m.definition)).toEqual(['b']);
+    });
+    it('a tab with zero matching-POS meanings shows only the unposed ones, never the other tab\'s meanings', () => {
+        const ms = [
+            { definition: 'noun-meaning', example: null, pos: 'noun' },
+            { definition: 'verb-meaning', example: null, pos: 'verb' },
+            { definition: 'unposed-meaning', example: null, pos: null },
+        ];
+        // no meaning is tagged 'adjective' — must NOT fall back to showing all of `ms`
+        const forAdjective = meaningsForPos(ms as any, 'adjective');
+        expect(forAdjective.map((m) => m.definition)).toEqual(['unposed-meaning']);
+        // and those non-matching ones still show up under "Nghĩa khác", not duplicated in the main list
+        expect(meaningsOtherPos(ms as any, 'adjective').map((m) => m.definition).sort())
+            .toEqual(['noun-meaning', 'verb-meaning']);
     });
     it('retries once after a failed fetch', async () => {
         const user = await makeUser();

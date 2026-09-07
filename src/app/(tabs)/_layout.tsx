@@ -1,10 +1,8 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { useColorScheme } from 'react-native';
-import { palette } from '@/theme/tokens';
+import { usePalette } from '@/theme/use-palette';
 
 export default function TabsLayout() {
-    const scheme = useColorScheme();
-    const t = palette(scheme === 'dark' ? 'dark' : 'light');
+    const t = usePalette();
 
     return (
         <NativeTabs

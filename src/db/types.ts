@@ -11,6 +11,7 @@ export interface DbLike {
     getFirstAsync<T = any>(sql: string, ...params: any[]): Promise<T | null>;
     runAsync(sql: string, ...params: any[]): Promise<{ changes: number }>;
     execAsync(sql: string): Promise<void>;
+    closeAsync(): Promise<void>;
 }
 
 // ---- dictionary rows ----

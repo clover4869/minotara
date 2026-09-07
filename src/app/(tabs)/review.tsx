@@ -4,21 +4,22 @@
  * Auto-read per 05B-03b: plays when the WORD side is visible, repeats every
  * 3s until graded; silent when audio is unavailable.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
 import { openDictionary, openUser } from '@/db/open';
-import { loadSrsStates, persistGrades, nextDueAt, type SavedWord } from '@/db/user';
+import { loadSrsStates, persistGrades, nextDueAt, type NextDue, type SavedWord } from '@/db/user';
 import {
-    buildSession, buildAheadSession, SessionQueue, shuffle, boxCounts, maskHeadword, type SrsState,
+    buildSession, buildAheadSession, dueBoxCounts, SessionQueue, shuffle, maskHeadword, type SrsState,
 } from '@/services/srs';
 import { formsOfEntry } from '@/services/lookup';
 import { parseEntryData } from '@/db/types';
 import { playRepeating, stopRepeat, playUrl } from '@/services/audio';
 import { useApp } from '@/stores/app';
-import { C } from '@/components/dict-ui';
+import { usePalette } from '@/theme/use-palette';
+import type { Semantic } from '@/theme/tokens';
 
 type Mode = 'word2meaning' | 'meaning2word' | 'listen';
 type Phase = 'start' | 'card' | 'done';
@@ -36,8 +37,10 @@ interface CardContent {
 }
 
 export default function ReviewScreen() {
-    const dialect = useApp((s) => s.prefDialect);
-    const reviewAutoplay = useApp((s) => s.reviewAutoplay);
+    const t = usePalette();
+    const s = useMemo(() => makeStyles(t), [t]);
+    const dialect = useApp((st) => st.prefDialect);
+    const reviewAutoplay = useApp((st) => st.reviewAutoplay);
 
     const [phase, setPhase] = useState<Phase>('start');
     const [mode, setMode] = useState<Mode>('word2meaning');
@@ -47,24 +50,35 @@ export default function ReviewScreen() {
     const [queue, setQueue] = useState<SessionQueue | null>(null);
     const [card, setCard] = useState<CardContent | null>(null);
     const [flipped, setFlipped] = useState(false);
-    const [nextDue, setNextDue] = useState<string | null>(null);
+    const [nextDue, setNextDue] = useState<NextDue | null>(null);
     const [noGrade, setNoGrade] = useState(false);
     const cache = useRef(new Map<number, CardContent>());
     const statesRef = useRef<SrsState[]>([]);
     const flipAnim = useRef(new Animated.Value(1)).current;
 
+    async function refreshCounts() {
+        const states = await loadSrsStates(await openUser());
+        statesRef.current = states;
+        const now = new Date();
+        const nowIso = now.toISOString();
+        // Matches savedStats() in my-words.tsx: new cards are immediately due too,
+        // so they must count here (they're excluded from dueBoxCounts below on
+        // purpose — that chart is Leitner box distribution, where "new" isn't a box).
+        setDueCount(states.filter((st) => st.due_at <= nowIso).length);
+        setAheadCount(buildAheadSession(states, now).length);
+        setBoxes(dueBoxCounts(states, now));
+    }
+
     useEffect(() => {
-        (async () => {
-            const states = await loadSrsStates(await openUser());
-            statesRef.current = states;
-            const now = new Date();
-            const session = buildSession(states, now);
-            setDueCount(session.length);
-            setAheadCount(buildAheadSession(states, now).length);
-            setBoxes(boxCounts(session.length ? session : states));
-        })();
+        refreshCounts();
         return () => stopRepeat();
     }, []);
+
+    // A card's cache is only valid within the session it was fetched for — the
+    // user could edit `user_meaning` on the Search tab between sessions, and
+    // since tabs stay mounted (NativeTabs), this ref would otherwise outlive
+    // that edit and keep showing stale content.
+    useFocusEffect(useCallback(() => () => { cache.current.clear(); }, []));
 
     async function loadCard(entryId: number): Promise<CardContent> {
         if (cache.current.has(entryId)) return cache.current.get(entryId)!;
@@ -99,6 +113,7 @@ export default function ReviewScreen() {
 
     async function begin(cards: SrsState[], skipGrade = false) {
         if (!cards.length) return;
+        cache.current.clear();
         setNoGrade(skipGrade);
         const q = skipGrade
             ? new SessionQueue(shuffle(cards), new Date(), Math.random, { reinforcement: true })
@@ -160,7 +175,7 @@ export default function ReviewScreen() {
 
     async function retryMissed() {
         if (!queue) return;
-        const missed = statesRef.current.filter((s) => queue.missed.has(s.entry_id));
+        const missed = statesRef.current.filter((st) => queue.missed.has(st.entry_id));
         if (!missed.length) return;
         await begin(missed, true);
     }
@@ -170,7 +185,7 @@ export default function ReviewScreen() {
         return (
             <SafeAreaView style={s.center} edges={['top']}>
                 <Text style={s.big}>{dueCount}</Text>
-                <Text style={{ color: C.secondary }}>thẻ đến hạn hôm nay</Text>
+                <Text style={s.secondaryText}>thẻ đến hạn hôm nay</Text>
                 <View style={s.bars}>
                     {boxes.map((n, i) => (
                         <View key={i} style={s.barCol}>
@@ -180,9 +195,9 @@ export default function ReviewScreen() {
                     ))}
                 </View>
                 <View style={[s.rowGap, { marginTop: 20 }]}>
-                    <ModeChip label="Từ → Nghĩa" active={mode === 'word2meaning'} onPress={() => setMode('word2meaning')} />
-                    <ModeChip label="Nghĩa → Từ" active={mode === 'meaning2word'} onPress={() => setMode('meaning2word')} />
-                    <ModeChip label="Nghe → Từ" active={mode === 'listen'} onPress={() => setMode('listen')} />
+                    <ModeChip label="Từ → Nghĩa" active={mode === 'word2meaning'} onPress={() => setMode('word2meaning')} s={s} />
+                    <ModeChip label="Nghĩa → Từ" active={mode === 'meaning2word'} onPress={() => setMode('meaning2word')} s={s} />
+                    <ModeChip label="Nghe → Từ" active={mode === 'listen'} onPress={() => setMode('listen')} s={s} />
                 </View>
                 <Pressable
                     style={[s.primaryBtn, !dueCount && { opacity: 0.4 }]}
@@ -197,7 +212,7 @@ export default function ReviewScreen() {
                     </Pressable>
                 )}
                 {!dueCount && !aheadCount && (
-                    <Text style={{ color: C.muted, marginTop: 10, fontSize: 13 }}>Lưu từ ở tab Tra cứu để có thẻ ôn</Text>
+                    <Text style={s.hintText}>Lưu từ ở tab Tra cứu để có thẻ ôn</Text>
                 )}
             </SafeAreaView>
         );
@@ -208,13 +223,13 @@ export default function ReviewScreen() {
         const wrong = wrongIds.length;
         const right = Math.max(0, queue.total - wrong);
         const nextLabel = nextDue
-            ? `Lần ôn tiếp theo: ${formatNext(nextDue)}`
+            ? `Lần ôn tiếp theo: ${nextDue.count} thẻ ${formatNext(nextDue.due_at)}`
             : 'Chưa có thẻ đến hạn tiếp theo';
         return (
             <SafeAreaView style={s.center} edges={['top']}>
                 <Text style={s.big}>{queue.total ? Math.round((right / queue.total) * 100) : 0}%</Text>
-                <Text style={{ color: C.secondary }}>{right} đúng · {wrong} chưa nhớ</Text>
-                <Text style={{ color: C.muted, marginTop: 8, fontSize: 13 }}>{nextLabel}</Text>
+                <Text style={s.secondaryText}>{right} đúng · {wrong} chưa nhớ</Text>
+                <Text style={s.hintText}>{nextLabel}</Text>
                 {wrong > 0 && (
                     <View style={{ marginTop: 16, alignItems: 'center', gap: 8 }}>
                         {wrongIds.slice(0, 8).map((id) => {
@@ -224,7 +239,7 @@ export default function ReviewScreen() {
                                 <Pressable key={id} onPress={() => router.push({
                                     pathname: '/word/[q]', params: { q: c.headword, id: String(id) },
                                 })}>
-                                    <Text style={{ color: C.accent, fontSize: 15 }}>{c.headword}</Text>
+                                    <Text style={s.wrongWord}>{c.headword}</Text>
                                 </Pressable>
                             );
                         })}
@@ -237,12 +252,7 @@ export default function ReviewScreen() {
                         </Pressable>
                     )}
                     <Pressable style={s.primaryBtn} onPress={async () => {
-                        const states = await loadSrsStates(await openUser());
-                        statesRef.current = states;
-                        const now = new Date();
-                        const session = buildSession(states, now);
-                        setDueCount(session.length);
-                        setAheadCount(buildAheadSession(states, now).length);
+                        await refreshCounts();
                         setQueue(null);
                         setPhase('start');
                     }}>
@@ -256,15 +266,16 @@ export default function ReviewScreen() {
     if (!card || !queue) return null;
     const frontIsWord = mode === 'word2meaning';
     const maskedEx = card.example ? maskHeadword(card.example, card.headword) : null;
+    const doneUnique = queue.total - queue.remaining;
 
     return (
         <SafeAreaView style={s.root} edges={['top']}>
             <View style={s.topBar}>
-                <Pressable onPress={exitEarly} hitSlop={10}><Text style={{ fontSize: 18 }}>✕</Text></Pressable>
+                <Pressable onPress={exitEarly} hitSlop={10}><Text style={s.exitIcon}>✕</Text></Pressable>
                 <View style={s.progressTrack}>
-                    <View style={[s.progressFill, { width: `${(queue.answered / Math.max(1, queue.total)) * 100}%` }]} />
+                    <View style={[s.progressFill, { width: `${(doneUnique / Math.max(1, queue.total)) * 100}%` }]} />
                 </View>
-                <Text style={{ fontSize: 13, color: C.secondary }}>{queue.answered}/{queue.total}</Text>
+                <Text style={s.secondaryText}>{doneUnique}/{queue.total}</Text>
             </View>
 
             <Pressable onPress={flip}>
@@ -306,11 +317,11 @@ export default function ReviewScreen() {
 
             {flipped && (
                 <View style={s.rowGap}>
-                    <Pressable style={[s.gradeBtn, { backgroundColor: C.dangerSoft }]} onPress={() => answer(false)}>
-                        <Text style={[s.gradeText, { color: C.danger }]}>✕ Chưa nhớ</Text>
+                    <Pressable style={[s.gradeBtn, { backgroundColor: t.status.errorBg }]} onPress={() => answer(false)}>
+                        <Text style={[s.gradeText, { color: t.text.error }]}>✕ Chưa nhớ</Text>
                     </Pressable>
-                    <Pressable style={[s.gradeBtn, { backgroundColor: C.successSoft }]} onPress={() => answer(true)}>
-                        <Text style={[s.gradeText, { color: C.success }]}>✓ Đã nhớ</Text>
+                    <Pressable style={[s.gradeBtn, { backgroundColor: t.status.successBg }]} onPress={() => answer(true)}>
+                        <Text style={[s.gradeText, { color: t.text.success }]}>✓ Đã nhớ</Text>
                     </Pressable>
                 </View>
             )}
@@ -328,44 +339,55 @@ function formatNext(iso: string): string {
     return d.toLocaleDateString('vi-VN');
 }
 
-function ModeChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+type Styles = ReturnType<typeof makeStyles>;
+
+function ModeChip({ label, active, onPress, s }: { label: string; active: boolean; onPress: () => void; s: Styles }) {
     return (
-        <Pressable onPress={onPress} style={[s.modeChip, active && { backgroundColor: '#1B1B1F' }]}>
-            <Text style={{ fontSize: 13, color: active ? '#fff' : C.secondary }}>{label}</Text>
+        <Pressable onPress={onPress} style={[s.modeChip, active && s.modeChipActive]}>
+            <Text style={[s.modeChipText, active && s.modeChipTextActive]}>{label}</Text>
         </Pressable>
     );
 }
 
-const s = StyleSheet.create({
-    root: { flex: 1, backgroundColor: '#fff' },
-    center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
-    big: { fontSize: 44, fontWeight: '600' },
-    rowGap: { flexDirection: 'row', gap: 12, padding: 16, flexWrap: 'wrap', justifyContent: 'center' },
-    primaryBtn: { marginTop: 20, backgroundColor: '#1B1B1F', paddingHorizontal: 36, paddingVertical: 13, borderRadius: 12 },
-    primaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-    ghostBtn: { marginTop: 12, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: C.border },
-    ghostBtnText: { fontSize: 14, color: C.secondary, fontWeight: '600' },
-    modeChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: C.border },
-    topBar: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 },
-    progressTrack: { flex: 1, height: 6, backgroundColor: C.soft, borderRadius: 999 },
-    progressFill: { height: 6, backgroundColor: C.accent, borderRadius: 999 },
-    cardBox: {
-        margin: 16, padding: 24, minHeight: 300, borderRadius: 16,
-        borderWidth: StyleSheet.hairlineWidth, borderColor: C.border,
-        alignItems: 'center', justifyContent: 'center',
-    },
-    cardWord: { fontSize: 30, fontWeight: '600', textAlign: 'center' },
-    cardIpa: { fontSize: 15, color: C.secondary, marginTop: 6 },
-    cardDef: { fontSize: 16, lineHeight: 23, textAlign: 'center' },
-    cardDictDef: { fontSize: 13, color: C.secondary, textAlign: 'center', marginTop: 8 },
-    cardExample: { fontSize: 13, color: C.secondary, fontStyle: 'italic', textAlign: 'center', marginTop: 10 },
-    cardForms: { fontSize: 12, color: C.muted, marginTop: 12 },
-    userTag: { fontSize: 11, color: C.warning },
-    tapHint: { position: 'absolute', bottom: 14, fontSize: 12, color: C.muted },
-    gradeBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-    gradeText: { fontSize: 15, fontWeight: '600' },
-    bars: { flexDirection: 'row', gap: 10, alignItems: 'flex-end', marginTop: 16, height: 56 },
-    barCol: { alignItems: 'center', width: 22 },
-    bar: { width: 14, backgroundColor: C.accent, borderRadius: 4 },
-    barLabel: { fontSize: 10, color: C.muted, marginTop: 4 },
-});
+function makeStyles(t: Semantic) {
+    return StyleSheet.create({
+        root: { flex: 1, backgroundColor: t.surface.canvas },
+        center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.surface.canvas },
+        big: { fontSize: 44, fontWeight: '600', color: t.text.primary },
+        secondaryText: { color: t.text.secondary },
+        hintText: { color: t.text.tertiary, marginTop: 10, fontSize: 13 },
+        rowGap: { flexDirection: 'row', gap: 12, padding: 16, flexWrap: 'wrap', justifyContent: 'center' },
+        primaryBtn: { marginTop: 20, backgroundColor: t.surface.inverse, paddingHorizontal: 36, paddingVertical: 13, borderRadius: 12 },
+        primaryBtnText: { color: t.text.onInverse, fontSize: 15, fontWeight: '600' },
+        ghostBtn: { marginTop: 12, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: t.border.default },
+        ghostBtnText: { fontSize: 14, color: t.text.secondary, fontWeight: '600' },
+        modeChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: t.border.default },
+        modeChipActive: { backgroundColor: t.surface.inverse, borderColor: t.surface.inverse },
+        modeChipText: { fontSize: 13, color: t.text.secondary },
+        modeChipTextActive: { color: t.text.onInverse },
+        topBar: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 },
+        exitIcon: { fontSize: 18, color: t.text.primary },
+        progressTrack: { flex: 1, height: 6, backgroundColor: t.surface.raised, borderRadius: 999, overflow: 'hidden' },
+        progressFill: { height: 6, backgroundColor: t.accent.bg, borderRadius: 999 },
+        cardBox: {
+            margin: 16, padding: 24, minHeight: 300, borderRadius: 16,
+            borderWidth: StyleSheet.hairlineWidth, borderColor: t.border.default,
+            alignItems: 'center', justifyContent: 'center',
+        },
+        cardWord: { fontSize: 30, fontWeight: '600', textAlign: 'center', color: t.text.primary },
+        cardIpa: { fontSize: 15, color: t.text.secondary, marginTop: 6 },
+        cardDef: { fontSize: 16, lineHeight: 23, textAlign: 'center', color: t.text.primary },
+        cardDictDef: { fontSize: 13, color: t.text.secondary, textAlign: 'center', marginTop: 8 },
+        cardExample: { fontSize: 13, color: t.text.secondary, fontStyle: 'italic', textAlign: 'center', marginTop: 10 },
+        cardForms: { fontSize: 12, color: t.text.tertiary, marginTop: 12 },
+        userTag: { fontSize: 11, color: t.text.warning },
+        tapHint: { position: 'absolute', bottom: 14, fontSize: 12, color: t.text.tertiary },
+        gradeBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+        gradeText: { fontSize: 15, fontWeight: '600' },
+        bars: { flexDirection: 'row', gap: 10, alignItems: 'flex-end', marginTop: 16, height: 56 },
+        barCol: { alignItems: 'center', width: 22 },
+        bar: { width: 14, backgroundColor: t.accent.bg, borderRadius: 4 },
+        barLabel: { fontSize: 10, color: t.text.tertiary, marginTop: 4 },
+        wrongWord: { color: t.accent.bg, fontSize: 15 },
+    });
+}

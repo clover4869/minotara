@@ -7,18 +7,22 @@ import { create } from 'zustand';
 import { getSetting, setSetting } from '../db/user';
 import { openUser } from '../db/open';
 
+export type ThemeMode = 'system' | 'light' | 'dark';
+
 interface AppState {
     dictReady: boolean;
     prefDialect: 'uk' | 'us';
     autoplay: boolean;
     reviewAutoplay: boolean;
     fontScale: 's' | 'm' | 'l';
+    themeMode: ThemeMode;
     setDictReady(v: boolean): void;
     loadSettings(): Promise<void>;
     setPrefDialect(d: 'uk' | 'us'): Promise<void>;
     setAutoplay(v: boolean): Promise<void>;
     setReviewAutoplay(v: boolean): Promise<void>;
     setFontScale(v: 's' | 'm' | 'l'): Promise<void>;
+    setThemeMode(v: ThemeMode): Promise<void>;
 }
 
 export const FONT_MULT: Record<'s' | 'm' | 'l', number> = { s: 0.9, m: 1, l: 1.15 };
@@ -29,15 +33,18 @@ export const useApp = create<AppState>((set) => ({
     autoplay: false,
     reviewAutoplay: false,
     fontScale: 'm',
+    themeMode: 'system',
     setDictReady: (v) => set({ dictReady: v }),
     loadSettings: async () => {
         const db = await openUser();
         const fs = await getSetting(db, 'font_scale');
+        const tm = await getSetting(db, 'theme_mode');
         set({
             prefDialect: (await getSetting(db, 'pref_dialect')) === 'us' ? 'us' : 'uk',
             autoplay: (await getSetting(db, 'autoplay')) === '1',
             reviewAutoplay: (await getSetting(db, 'review_autoplay')) === '1',
             fontScale: fs === 's' || fs === 'l' ? fs : 'm',
+            themeMode: tm === 'light' || tm === 'dark' ? tm : 'system',
         });
     },
     setPrefDialect: async (d) => {
@@ -55,5 +62,9 @@ export const useApp = create<AppState>((set) => ({
     setFontScale: async (v) => {
         set({ fontScale: v });
         await setSetting(await openUser(), 'font_scale', v);
+    },
+    setThemeMode: async (v) => {
+        set({ themeMode: v });
+        await setSetting(await openUser(), 'theme_mode', v);
     },
 }));

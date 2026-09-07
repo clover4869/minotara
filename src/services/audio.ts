@@ -5,14 +5,20 @@
  * Failures are silent by contract — never an error popup mid-review (05B-03b).
  */
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Crypto from 'expo-crypto';
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 
 const CACHE_DIR = `${FileSystem.cacheDirectory}audio/`;
 
-function cacheKey(url: string): string {
-    let h = 0;
-    for (let i = 0; i < url.length; i++) h = ((h << 5) - h + url.charCodeAt(i)) | 0;
-    return `${CACHE_DIR}${(h >>> 0).toString(16)}.mp3`;
+/**
+ * SHA-256 of the URL, not a 32-bit hash: with ~150k+ distinct pronunciation
+ * URLs in the dictionary, a 32-bit hash collides often enough in practice
+ * (verified against the real oxford-app.db — 7 colliding pairs) that two
+ * different words silently share a cache file and play each other's audio.
+ */
+async function cacheKey(url: string): Promise<string> {
+    const digest = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, url);
+    return `${CACHE_DIR}${digest}.mp3`;
 }
 
 let player: AudioPlayer | null = null;
@@ -21,7 +27,7 @@ let repeatTimer: ReturnType<typeof setInterval> | null = null;
 async function ensureCached(url: string): Promise<string | null> {
     try {
         await FileSystem.makeDirectoryAsync(CACHE_DIR, { intermediates: true }).catch(() => {});
-        const local = cacheKey(url);
+        const local = await cacheKey(url);
         const info = await FileSystem.getInfoAsync(local);
         if (info.exists) return local;
         const dl = await FileSystem.downloadAsync(url, local);

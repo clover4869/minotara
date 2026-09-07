@@ -161,7 +161,7 @@ const FORMS_OF_ENTRY = `
          COALESCE(f.audio_us, f.audio_any) AS audio_us,
          f.lemma, f.lemma_pos, f.entry_id, NULL AS headword, NULL AS pos
   FROM forms f
-  JOIN form_type_label l ON l.form_type = f.form_type
+  LEFT JOIN form_type_label l ON l.form_type = f.form_type
   WHERE f.entry_id = ? AND f.form_type != 'other'
   ORDER BY l.sort, f.form`;
 

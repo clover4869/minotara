@@ -6,30 +6,39 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { openUser } from '@/db/open';
 import { historyByDay, deleteHistoryRow, clearHistory } from '@/db/user';
-import { C } from '@/components/dict-ui';
+import { usePalette } from '@/theme/use-palette';
+import type { Semantic } from '@/theme/tokens';
 
 interface Row { id: number; query: string; entry_id: number | null; looked_at: string }
 interface Section { title: string; data: Row[] }
 
+/** SQLite's `datetime('now')` yields 'YYYY-MM-DD HH:MM:SS' (space, no timezone) representing UTC — normalize to a real Date before using any local-time accessor, otherwise day grouping and the time-of-day shown are off by the device's UTC offset. */
+function toLocalDate(sqliteDatetime: string): Date {
+    return new Date(sqliteDatetime.replace(' ', 'T') + 'Z');
+}
+function pad2(n: number): string {
+    return String(n).padStart(2, '0');
+}
 function dayKey(iso: string): string {
-    return iso.slice(0, 10);
+    const d = toLocalDate(iso);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 function dayLabel(iso: string): string {
-    const key = dayKey(iso);
+    const d = toLocalDate(iso);
     const today = new Date();
-    const ymd = (d: Date) => d.toISOString().slice(0, 10);
     const yesterday = new Date(today.getTime() - 86400000);
-    if (key === ymd(today)) return 'Hôm nay';
-    if (key === ymd(yesterday)) return 'Hôm qua';
-    const [y, m, d] = key.split('-');
-    return `${d}/${m}/${y?.slice(2)}`;
+    if (d.toDateString() === today.toDateString()) return 'Hôm nay';
+    if (d.toDateString() === yesterday.toDateString()) return 'Hôm qua';
+    return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)}`;
 }
 function timeLabel(iso: string): string {
-    const t = iso.includes('T') ? iso.slice(11, 16) : iso.slice(11, 16);
-    return t || iso.slice(5, 16);
+    const d = toLocalDate(iso);
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 export default function HistoryScreen() {
+    const t = usePalette();
+    const s = useMemo(() => makeStyles(t), [t]);
     const [rows, setRows] = useState<Row[]>([]);
     const [offset, setOffset] = useState(0);
     const [done, setDone] = useState(false);
@@ -78,11 +87,11 @@ export default function HistoryScreen() {
     return (
         <SafeAreaView style={s.root} edges={['top']}>
             <View style={s.header}>
-                <Pressable onPress={() => router.back()} hitSlop={10}><Text style={{ fontSize: 18 }}>←</Text></Pressable>
+                <Pressable onPress={() => router.back()} hitSlop={10}><Text style={s.back}>←</Text></Pressable>
                 <Text style={s.title}>Lịch sử</Text>
                 {rows.length > 0 && (
                     <Pressable onPress={confirmClear}>
-                        <Text style={{ fontSize: 13, color: C.danger }}>Xoá tất cả</Text>
+                        <Text style={s.clearAll}>Xoá tất cả</Text>
                     </Pressable>
                 )}
             </View>
@@ -95,7 +104,7 @@ export default function HistoryScreen() {
                     <View style={{ alignItems: 'center', marginTop: 40, gap: 12 }}>
                         <Text style={s.empty}>Chưa tra từ nào</Text>
                         <Pressable onPress={() => router.replace('/')}>
-                            <Text style={{ color: C.accent, fontSize: 15 }}>Về tra cứu</Text>
+                            <Text style={s.emptyLink}>Về tra cứu</Text>
                         </Pressable>
                     </View>
                 }
@@ -112,8 +121,8 @@ export default function HistoryScreen() {
                         )}
                         onLongPress={async () => { await deleteHistoryRow(await openUser(), item.id); reload(); }}
                     >
-                        <Text style={{ flex: 1, fontSize: 15 }}>{item.query}</Text>
-                        <Text style={{ fontSize: 12, color: C.muted }}>{timeLabel(item.looked_at)}</Text>
+                        <Text style={s.query}>{item.query}</Text>
+                        <Text style={s.time}>{timeLabel(item.looked_at)}</Text>
                     </Pressable>
                 )}
             />
@@ -121,17 +130,24 @@ export default function HistoryScreen() {
     );
 }
 
-const s = StyleSheet.create({
-    root: { flex: 1, backgroundColor: '#fff' },
-    header: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 },
-    title: { flex: 1, fontSize: 17, fontWeight: '600' },
-    section: {
-        fontSize: 12, color: C.muted, letterSpacing: 0.3,
-        paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, backgroundColor: '#fff',
-    },
-    row: {
-        flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12,
-        borderTopWidth: StyleSheet.hairlineWidth, borderColor: C.border,
-    },
-    empty: { textAlign: 'center', color: C.muted },
-});
+function makeStyles(t: Semantic) {
+    return StyleSheet.create({
+        root: { flex: 1, backgroundColor: t.surface.canvas },
+        header: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 },
+        back: { fontSize: 18, color: t.text.primary },
+        title: { flex: 1, fontSize: 17, fontWeight: '600', color: t.text.primary },
+        clearAll: { fontSize: 13, color: t.text.error },
+        section: {
+            fontSize: 12, color: t.text.tertiary, letterSpacing: 0.3,
+            paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, backgroundColor: t.surface.canvas,
+        },
+        row: {
+            flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12,
+            borderTopWidth: StyleSheet.hairlineWidth, borderColor: t.border.default,
+        },
+        query: { flex: 1, fontSize: 15, color: t.text.primary },
+        time: { fontSize: 12, color: t.text.tertiary },
+        empty: { textAlign: 'center', color: t.text.tertiary },
+        emptyLink: { color: t.accent.bg, fontSize: 15 },
+    });
+}

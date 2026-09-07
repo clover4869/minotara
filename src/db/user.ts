@@ -136,10 +136,15 @@ export async function updateUserMeaning(db: DbLike, entryId: number, meaning: st
 
 export const clearViCache = (db: DbLike) => db.runAsync('DELETE FROM vi_cache');
 
-export async function nextDueAt(db: DbLike): Promise<string | null> {
-    const row = await db.getFirstAsync<{ due_at: string }>(
+export interface NextDue { due_at: string; count: number }
+
+export async function nextDueAt(db: DbLike): Promise<NextDue | null> {
+    const min = await db.getFirstAsync<{ due_at: string }>(
         `SELECT MIN(due_at) due_at FROM srs_state WHERE due_at > datetime('now')`);
-    return row?.due_at ?? null;
+    if (!min?.due_at) return null;
+    const counted = await db.getFirstAsync<{ n: number }>(
+        `SELECT COUNT(*) n FROM srs_state WHERE date(due_at) = date(?)`, min.due_at);
+    return { due_at: min.due_at, count: counted?.n ?? 1 };
 }
 
 // ---------------------------------------------------------------- srs persistence
@@ -161,6 +166,7 @@ const SETTING_DEFAULTS: Record<string, string> = {
     autoplay: '0',
     review_autoplay: '0',
     font_scale: 'm',
+    theme_mode: 'system',
 };
 export async function getSetting(db: DbLike, key: string): Promise<string> {
     const row = await db.getFirstAsync<{ value: string }>(
