@@ -1,42 +1,105 @@
 /**
- * SRS — Leitner 5 boxes + the three Anki-borrowed mechanics from the spec:
- *   1. fuzz ±15% so same-day imports don't stay clumped forever
+ * SRS — FSRS-backed (ts-fsrs) interval math, wrapped in the same Anki-borrowed
+ * session mechanics as before:
+ *   1. fuzz ±15% so same-day imports don't stay clumped forever (applied on
+ *      top of FSRS's computed interval — FSRS's own fuzz uses an internal,
+ *      non-injectable RNG, which would break this file's "pure/deterministic"
+ *      contract, so we keep doing it ourselves)
  *   2. learning steps: a NEW card must be answered correctly twice within the
- *      session before it graduates to box 2 (handled by SessionQueue)
+ *      session before it graduates (handled by SessionQueue, unchanged)
  *   3. max 20 new cards per session; due reviews are uncapped up to the 40 ceiling
+ *
+ * `box` is kept only as a cosmetic bucket (derived from FSRS `stability`) for
+ * the existing Leitner-ladder UI — it no longer drives scheduling.
  *
  * Everything here is pure: time and randomness are injected, so tests are
  * deterministic. Persistence lives in db/user.ts, not here.
  */
+import { fsrs, createEmptyCard, Rating, State, type Card as FsrsCard } from 'ts-fsrs';
 
 export interface SrsState {
     entry_id: number;
-    box: number;          // 1..5
+    box: number;          // 1..5, cosmetic — see boxFromStability()
     due_at: string;       // ISO
     streak: number;
     last_result: number | null; // 1 | 0 | null(never reviewed)
+    // FSRS memory state — null until this card has been graded at least once
+    // under FSRS (older Leitner-only rows, or a card saved but never reviewed).
+    stability?: number | null;
+    difficulty?: number | null;
+    fsrs_state?: number | null;
+    reps?: number | null;
+    lapses?: number | null;
+    scheduled_days?: number | null;
+    learning_steps?: number | null;
+    last_review?: string | null;
 }
 
-export const BOX_INTERVAL_DAYS: Record<number, number> = { 1: 1, 2: 2, 3: 4, 4: 7, 5: 14 };
 export const MAX_NEW_PER_SESSION = 20;
 export const MAX_CARDS_PER_SESSION = 40;
 
-const DAY_MS = 86_400_000;
-
 export const isNewCard = (s: SrsState) => s.last_result === null;
 
-/**
- * Box transition per the spec table. Correct: 1→2→3→4→5→5.
- * Wrong: boxes 1-3 → 1; boxes 4-5 → 2 (partial credit for old cards).
- */
-export function nextBox(box: number, correct: boolean): number {
-    if (correct) return Math.min(5, box + 1);
-    return box >= 4 ? 2 : 1;
+/** enable_short_term: false — FSRS's own minute-granularity learning steps
+ * would double up with SessionQueue's in-session graduation logic below, so
+ * this instance is used purely for interval math, not step orchestration. */
+const scheduler = fsrs({ enable_short_term: false, enable_fuzz: false });
+
+/** Cosmetic bucket for the Leitner-ladder UI — same day thresholds the old Leitner boxes used, now read off FSRS's stability instead of driving anything. */
+export function boxFromStability(stability: number | null | undefined): number {
+    if (stability == null) return 1;
+    if (stability < 2) return 1;
+    if (stability < 4) return 2;
+    if (stability < 7) return 3;
+    if (stability < 14) return 4;
+    return 5;
+}
+
+function toFsrsCard(s: SrsState, now: Date): FsrsCard {
+    if (s.stability == null) {
+        // Never graded under FSRS yet (fresh save, or a row from before this
+        // migration) — seed a fresh memory state but keep the existing due
+        // date rather than resetting it; FSRS ignores `due` for State.New
+        // anyway, and self-corrects within a few real reviews regardless.
+        return { ...createEmptyCard(now), due: new Date(s.due_at) };
+    }
+    return {
+        due: new Date(s.due_at),
+        stability: s.stability,
+        difficulty: s.difficulty ?? 0,
+        elapsed_days: 0, // deprecated field on Card; ts-fsrs computes elapsed time itself from `due`/`last_review`
+        scheduled_days: s.scheduled_days ?? 0,
+        learning_steps: s.learning_steps ?? 0,
+        reps: s.reps ?? 0,
+        lapses: s.lapses ?? 0,
+        state: (s.fsrs_state ?? State.New) as State,
+        last_review: s.last_review ? new Date(s.last_review) : undefined,
+    };
+}
+
+function fromFsrsCard(entryId: number, card: FsrsCard, correct: boolean, streak: number): SrsState {
+    return {
+        entry_id: entryId,
+        box: boxFromStability(card.stability),
+        due_at: card.due.toISOString(),
+        streak: correct ? streak + 1 : 0,
+        last_result: correct ? 1 : 0,
+        stability: card.stability,
+        difficulty: card.difficulty,
+        fsrs_state: card.state,
+        reps: card.reps,
+        lapses: card.lapses,
+        scheduled_days: card.scheduled_days,
+        learning_steps: card.learning_steps,
+        last_review: card.last_review ? card.last_review.toISOString() : new Date().toISOString(),
+    };
 }
 
 /**
- * Apply one graded answer. `rng()` ∈ [0,1) injected for fuzz.
- * Returns a NEW state — caller persists it.
+ * Apply one graded answer via FSRS. "Chưa nhớ" → Rating.Again, "Đã nhớ" →
+ * Rating.Good — the app keeps its 2-button UI; Hard/Easy are unused by
+ * design (spec's explicit anti-"ease hell" stance). `rng()` ∈ [0,1) injected
+ * for the ±15% fuzz layer. Returns a NEW state — caller persists it.
  */
 export function grade(
     s: SrsState,
@@ -44,16 +107,18 @@ export function grade(
     now: Date,
     rng: () => number = Math.random,
 ): SrsState {
-    const box = nextBox(s.box, correct);
-    const baseMs = BOX_INTERVAL_DAYS[box] * DAY_MS;
-    const fuzz = 1 + (rng() * 2 - 1) * 0.15; // ±15%
-    return {
-        ...s,
-        box,
-        due_at: new Date(now.getTime() + baseMs * fuzz).toISOString(),
-        streak: correct ? s.streak + 1 : 0,
-        last_result: correct ? 1 : 0,
-    };
+    const rating = correct ? Rating.Good : Rating.Again;
+    const { card } = scheduler.next(toFsrsCard(s, now), now, rating);
+    const baseMs = card.due.getTime() - now.getTime();
+    const fuzzedMs = baseMs > 0 ? baseMs * (1 + (rng() * 2 - 1) * 0.15) : baseMs;
+    const fuzzedCard = { ...card, due: new Date(now.getTime() + fuzzedMs) };
+    return fromFsrsCard(s.entry_id, fuzzedCard, correct, s.streak);
+}
+
+/** Preview the interval FSRS would give for each rating, without committing — for showing "< 1d" / "4d" next to the grade buttons. */
+export function previewIntervals(s: SrsState, now: Date): { again: Date; good: Date } {
+    const preview = scheduler.repeat(toFsrsCard(s, now), now);
+    return { again: preview[Rating.Again].card.due, good: preview[Rating.Good].card.due };
 }
 
 /** Pick the cards for a session: due first (low box first), then ≤20 new. */

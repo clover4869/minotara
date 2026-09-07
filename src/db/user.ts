@@ -38,6 +38,30 @@ const MIGRATIONS: string[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_history_time ON history(looked_at DESC);
     `,
+    // v2 — image search cache (Phase 2: DuckDuckGo-backed "Ảnh" tab)
+    `
+    CREATE TABLE IF NOT EXISTS image_cache (
+        query TEXT NOT NULL,
+        page INTEGER NOT NULL,
+        json TEXT NOT NULL,
+        fetched_at TEXT,
+        PRIMARY KEY (query, page)
+    );
+    `,
+    // v3 — FSRS scheduler columns (Phase 2). `box`/`streak`/`last_result` stay
+    // as-is: `box` becomes a cosmetic bucket derived from `stability` for the
+    // Leitner-ladder UI, `last_result`/`streak` still drive SessionQueue's
+    // in-session learning-step orchestration, which is unchanged.
+    `
+    ALTER TABLE srs_state ADD COLUMN stability REAL;
+    ALTER TABLE srs_state ADD COLUMN difficulty REAL;
+    ALTER TABLE srs_state ADD COLUMN fsrs_state INTEGER;
+    ALTER TABLE srs_state ADD COLUMN reps INTEGER;
+    ALTER TABLE srs_state ADD COLUMN lapses INTEGER;
+    ALTER TABLE srs_state ADD COLUMN scheduled_days INTEGER;
+    ALTER TABLE srs_state ADD COLUMN learning_steps INTEGER;
+    ALTER TABLE srs_state ADD COLUMN last_review TEXT;
+    `,
 ];
 
 export async function migrateUserDb(db: DbLike): Promise<void> {
@@ -136,6 +160,18 @@ export async function updateUserMeaning(db: DbLike, entryId: number, meaning: st
 
 export const clearViCache = (db: DbLike) => db.runAsync('DELETE FROM vi_cache');
 
+// ---------------------------------------------------------------- image search cache
+export async function getCachedImages(db: DbLike, query: string, page: number): Promise<string | null> {
+    const row = await db.getFirstAsync<{ json: string }>(
+        'SELECT json FROM image_cache WHERE query = ? AND page = ?', query, page);
+    return row?.json ?? null;
+}
+export const cacheImages = (db: DbLike, query: string, page: number, json: string) =>
+    db.runAsync(
+        'INSERT OR REPLACE INTO image_cache (query, page, json, fetched_at) VALUES (?, ?, ?, ?)',
+        query, page, json, new Date().toISOString());
+export const clearImageCache = (db: DbLike) => db.runAsync('DELETE FROM image_cache');
+
 export interface NextDue { due_at: string; count: number }
 
 export async function nextDueAt(db: DbLike): Promise<NextDue | null> {
@@ -150,13 +186,20 @@ export async function nextDueAt(db: DbLike): Promise<NextDue | null> {
 // ---------------------------------------------------------------- srs persistence
 export async function loadSrsStates(db: DbLike): Promise<SrsState[]> {
     return db.getAllAsync<SrsState>(
-        'SELECT entry_id, box, due_at, streak, last_result FROM srs_state');
+        `SELECT entry_id, box, due_at, streak, last_result,
+                stability, difficulty, fsrs_state, reps, lapses, scheduled_days, learning_steps, last_review
+         FROM srs_state`);
 }
 export async function persistGrades(db: DbLike, graded: SrsState[]) {
     for (const g of graded) {
         await db.runAsync(
-            'UPDATE srs_state SET box=?, due_at=?, streak=?, last_result=? WHERE entry_id=?',
-            g.box, g.due_at, g.streak, g.last_result, g.entry_id);
+            `UPDATE srs_state SET box=?, due_at=?, streak=?, last_result=?,
+                stability=?, difficulty=?, fsrs_state=?, reps=?, lapses=?, scheduled_days=?, learning_steps=?, last_review=?
+             WHERE entry_id=?`,
+            g.box, g.due_at, g.streak, g.last_result,
+            g.stability ?? null, g.difficulty ?? null, g.fsrs_state ?? null,
+            g.reps ?? null, g.lapses ?? null, g.scheduled_days ?? null, g.learning_steps ?? null, g.last_review ?? null,
+            g.entry_id);
     }
 }
 
