@@ -11,7 +11,8 @@
     ],
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "io.github.clover4869.minotara"
     },
     "android": {
       "adaptiveIcon": {
@@ -27,7 +28,7 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
-      "package": "com.anonymous.Minotara"
+      "package": "io.github.clover4869.minotara"
     },
     "web": {
       "output": "static",
