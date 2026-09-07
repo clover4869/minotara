@@ -7,7 +7,7 @@ import { matchImport } from '../src/services/import-matcher';
 import { grade, buildSession, buildAheadSession, dueBoxCounts, SessionQueue, boxFromStability, previewIntervals, maskHeadword, type SrsState } from '../src/services/srs';
 import { migrateUserDb, saveWord, savedStats, getSetting, setSetting, nextDueAt, getCachedImages, cacheImages } from '../src/db/user';
 import { getViMeanings, meaningsForPos, meaningsOtherPos, normalizeViPos } from '../src/services/vi-meaning';
-import { searchImages, IMAGE_CACHE_TTL_MS } from '../src/services/image-search';
+import { searchImages, parseBingImages, IMAGE_CACHE_TTL_MS } from '../src/services/image-search';
 
 /** better-sqlite3 wrapped to look like expo-sqlite's async API. */
 function wrap(db: Database.Database): DbLike {
@@ -405,64 +405,79 @@ describe('vi-meaning', () => {
     });
 });
 
-describe('image-search (DuckDuckGo)', () => {
-    const htmlWithToken = '<html><script>vqd="4-12345"</script></html>';
-    const jsonResults = { results: [
-        { image: 'https://x/full.jpg', thumbnail: 'https://x/thumb.jpg', title: 'Cat', source: 'Bing', url: 'https://source/cat', width: 100, height: 100 },
-    ] };
+describe('image-search (Bing)', () => {
+    /** Đúng dạng Bing trả về: JSON nằm trong thuộc tính m=, dấu nháy escape thành &quot;. */
+    const item = (i: number) =>
+        ` m="{&quot;purl&quot;:&quot;https://src${i}.example/page&quot;,`
+        + `&quot;murl&quot;:&quot;https://img${i}.example/full.jpg&quot;,`
+        + `&quot;turl&quot;:&quot;https://th${i}.example/t.jpg&quot;,`
+        + `&quot;t&quot;:&quot;Ảnh ${i} &amp; bạn&quot;}"`;
+    const page = (n: number) => '<html>' + Array.from({ length: n }, (_, i) => `<a${item(i)}></a>`).join('') + '</html>';
+    const ok = (body: string) => ({ ok: true, text: async () => body }) as any;
 
-    it('fetches the vqd token then results, caches, and serves from cache on the next call', async () => {
-        const user = await makeUser();
-        let tokenCalls = 0;
-        let resultCalls = 0;
-        const fakeFetch = (async (url: string) => {
-            if (String(url).includes('/i.js')) {
-                resultCalls++;
-                return { ok: true, json: async () => jsonResults } as any;
-            }
-            tokenCalls++;
-            return { ok: true, text: async () => htmlWithToken } as any;
-        }) as any;
-        const a = await searchImages(user, 'Cat', 1, fakeFetch);
-        expect(a.fromCache).toBe(false);
-        expect(a.results).toHaveLength(1);
-        expect(a.results[0].image).toBe('https://x/full.jpg');
-        expect(tokenCalls).toBe(1);
-        expect(resultCalls).toBe(1);
-
-        const b = await searchImages(user, 'cat', 1, (() => { throw new Error('no network'); }) as any);
-        expect(b.fromCache).toBe(true);
-        expect(b.results).toHaveLength(1);
-    });
-
-    it('fails soft (after 1 retry) when no vqd token can be found', async () => {
+    it('bóc được murl/turl/t, suy ra host nguồn, rồi phục vụ từ cache lần sau', async () => {
         const user = await makeUser();
         let calls = 0;
-        const fakeFetch = (async () => {
-            calls++;
-            return { ok: true, text: async () => '<html>no token here</html>' } as any;
-        }) as any;
+        const fakeFetch = (async () => { calls++; return ok(page(9)); }) as any;
+
+        const a = await searchImages(user, 'Cat', 1, fakeFetch);
+        expect(a.fromCache).toBe(false);
+        expect(a.results).toHaveLength(9);
+        expect(a.results[0].image).toBe('https://img0.example/full.jpg');
+        expect(a.results[0].thumbnail).toBe('https://th0.example/t.jpg');
+        expect(a.results[0].sourceUrl).toBe('https://src0.example/page');
+        expect(a.results[0].source).toBe('src0.example');
+        expect(calls).toBe(1);
+
+        // 'Cat' và 'cat' cùng một khoá cache
+        const b = await searchImages(user, 'cat', 1, (() => { throw new Error('no network'); }) as any);
+        expect(b.fromCache).toBe(true);
+        expect(b.results).toHaveLength(9);
+    });
+
+    it('giải mã &amp; đúng thứ tự, không ra "&quot;" lạc trong tiêu đề', () => {
+        expect(parseBingImages(page(1))[0].title).toBe('Ảnh 0 & bạn');
+    });
+
+    it('trang cụt do bị chặn tốc độ bị coi là lỗi và KHÔNG được cache', async () => {
+        const user = await makeUser();
+        let calls = 0;
+        // Bing trả HTTP 200 kèm đúng 1 kết quả khi chặn — nhận 1 ảnh lạc còn
+        // tệ hơn báo lỗi, và cache nó lại thì kẹt 30 ngày.
+        const fakeFetch = (async () => { calls++; return ok(page(1)); }) as any;
         const r = await searchImages(user, 'dog', 1, fakeFetch);
         expect(r.failed).toBe(true);
         expect(r.results).toEqual([]);
-        expect(calls).toBe(2);
+        expect(calls).toBe(2); // đã thử lại 1 lần
+
+        // lần sau vẫn đi lấy mới chứ không dính cache rác
+        const again = await searchImages(user, 'dog', 1, (async () => ok(page(9))) as any);
+        expect(again.failed).toBe(false);
+        expect(again.results).toHaveLength(9);
     });
 
-    it('fails soft when the results fetch throws', async () => {
+    it('hỏng mềm khi request throw', async () => {
         const user = await makeUser();
-        const fakeFetch = (async (url: string) => {
-            if (String(url).includes('/i.js')) throw new Error('network down');
-            return { ok: true, text: async () => htmlWithToken } as any;
-        }) as any;
-        const r = await searchImages(user, 'bird', 1, fakeFetch);
+        const r = await searchImages(user, 'bird', 1, (async () => { throw new Error('network down'); }) as any);
         expect(r.failed).toBe(true);
         expect(r.results).toEqual([]);
     });
 
-    it('empty query returns no results without fetching', async () => {
+    it('hỏng mềm khi HTTP không ok', async () => {
         const user = await makeUser();
-        const fakeFetch = (() => { throw new Error('should not be called'); }) as any;
-        const r = await searchImages(user, '   ', 1, fakeFetch);
+        const r = await searchImages(user, 'fish', 1, (async () => ({ ok: false, status: 429 })) as any);
+        expect(r.failed).toBe(true);
+    });
+
+    it('bỏ qua thẻ có JSON hỏng thay vì vứt cả trang', () => {
+        const good = page(6);
+        const broken = good.replace('<html>', '<html><a m="{khong-phai-json}"></a>');
+        expect(parseBingImages(broken)).toHaveLength(6);
+    });
+
+    it('truy vấn rỗng thì không gọi mạng', async () => {
+        const user = await makeUser();
+        const r = await searchImages(user, '   ', 1, (() => { throw new Error('should not be called'); }) as any);
         expect(r.results).toEqual([]);
         expect(r.failed).toBe(false);
     });

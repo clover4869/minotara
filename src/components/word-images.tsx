@@ -4,11 +4,11 @@
  * *this* word; searching images from a standalone tab meant retyping the word
  * with none of its meaning on screen, which is the wrong place to look at them.
  *
- * Lazy by construction: this component is the child of an <Accordion>, which
- * mounts its children only when open — so opening the section IS the "fetch
- * now" gesture. Words the user never expands cost no network at all, which
- * matters here because the backing endpoint (DuckDuckGo, see
- * services/image-search.ts) is undocumented and rate-limit-prone.
+ * Lazy by construction: SCR-02 chỉ mount view "Ảnh" khi người dùng bấm sang
+ * nó (xem `visited` trong app/word/[q].tsx) — nên chính việc mở tab LÀ hành vi
+ * "tôi muốn xem ảnh". Từ nào không bấm vào thì không tốn một request nào, và
+ * điều đó quan trọng vì endpoint phía sau (Bing, xem services/image-search.ts)
+ * không có tài liệu và có chặn tốc độ.
  *
  * Fail-soft like the Vietnamese-meaning block above it: no network → a
  * "cần mạng" row with a retry, never an error state that blocks the entry.
@@ -117,7 +117,7 @@ export function WordImages({ word }: { word: string }) {
                     </Pressable>
                 ))}
             </View>
-            <Text style={s.attribution}>Ảnh từ DuckDuckGo — chỉ để tham khảo trong app.</Text>
+            <Text style={s.attribution}>Ảnh từ Bing — chỉ để tham khảo trong app.</Text>
 
             <Modal visible={!!preview} transparent animationType="fade" onRequestClose={() => setPreview(null)}>
                 <Pressable style={s.modalBackdrop} onPress={() => setPreview(null)}>

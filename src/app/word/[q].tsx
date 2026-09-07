@@ -58,7 +58,7 @@ export default function WordDetail() {
     /** View nào đang xem. Đổi `entryIdx` KHÔNG đụng tới đây — đang đọc Tiếng Việt
      *  của bank-noun mà bấm sang verb thì vẫn ở Tiếng Việt, không bị đá về đầu. */
     const [view, setView] = useState<number>(V_EN);
-    /** View đã từng mở. View chưa mở thì không mount → tab Ảnh không gọi DuckDuckGo
+    /** View đã từng mở. View chưa mở thì không mount → tab Ảnh không gọi nguồn ảnh
      *  cho tới khi người dùng thật sự bấm vào. Mở rồi thì giữ mount (chỉ display:none)
      *  nên vị trí cuộn và ảnh đã tải của từng view được giữ nguyên khi chuyển qua lại. */
     const [visited, setVisited] = useState<Set<number>>(() => new Set([V_EN]));
@@ -368,7 +368,7 @@ export default function WordDetail() {
 
     /* View 2 — Ảnh. Không còn accordion: chính việc mở tab là tín hiệu "tôi muốn
        xem ảnh", vì view chưa vào thì không nằm trong `visited` nên không mount,
-       nên không gọi DuckDuckGo. Cùng hợp đồng lazy cũ, ít hơn một lớp bọc. */
+       nên không gọi ra mạng. Cùng hợp đồng lazy cũ, ít hơn một lớp bọc. */
     const viewImg = (
         // Padding phải ở đây: trước kia <Accordion> cấp lề cho lưới ảnh, bỏ accordion
         // đi thì lưới tràn sát mép trong khi mọi thứ khác vẫn thụt vào.

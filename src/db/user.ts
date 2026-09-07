@@ -38,7 +38,7 @@ const MIGRATIONS: string[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_history_time ON history(looked_at DESC);
     `,
-    // v2 — image search cache (Phase 2: DuckDuckGo-backed "Ảnh" tab)
+    // v2 — image search cache (tab "Ảnh"; nguồn ảnh: xem services/image-search.ts)
     `
     CREATE TABLE IF NOT EXISTS image_cache (
         query TEXT NOT NULL,
