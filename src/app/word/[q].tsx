@@ -23,6 +23,7 @@ import { addHistory, getSaved, saveWord, unsaveWord, updateUserMeaning, type Sav
 import { useApp, FONT_MULT } from '@/stores/app';
 import { Speaker, Chip, CefrBadge, IconButton, Icons, UiIcon } from '@/components/dict-ui';
 import { WordImages } from '@/components/word-images';
+import { TappableText } from '@/components/tappable-text';
 import { SearchOverlay } from '@/components/search-overlay';
 import { usePalette } from '@/theme/use-palette';
 import { primitive, radius, space, type as typeScale } from '@/theme/tokens';
@@ -320,7 +321,7 @@ export default function WordDetail() {
                                 <View style={s.section}>
                                     <Text style={s.cardTitle}>Nghĩa</Text>
                                     {senses.map((sense, i) => (
-                                        <SenseBlock key={i} n={i + 1} sense={sense} fs={fs} onChip={openRelated} s={s} t={t} />
+                                        <SenseBlock key={i} n={i + 1} sense={sense} fs={fs} onChip={openRelated} headword={entry?.headword} s={s} t={t} />
                                     ))}
                                 </View>
 
@@ -329,8 +330,8 @@ export default function WordDetail() {
                                         {data.idioms.map((idm, i) => (
                                             <View key={i} style={{ marginTop: 8 }}>
                                                 <Text style={{ fontWeight: '600', fontSize: 14 * fs, color: t.text.primary }}>{idm.idiom}</Text>
-                                                {idm.senses[0]?.definition ? <Text style={s.definition}>{idm.senses[0].definition}</Text> : null}
-                                                {idm.senses[0]?.examples[0]?.text ? <Text style={s.example}>{idm.senses[0].examples[0].text}</Text> : null}
+                                                {idm.senses[0]?.definition ? <TappableText style={s.definition}>{idm.senses[0].definition}</TappableText> : null}
+                                                {idm.senses[0]?.examples[0]?.text ? <TappableText style={s.example}>{idm.senses[0].examples[0].text}</TappableText> : null}
                                             </View>
                                         ))}
                                     </Accordion>
@@ -347,7 +348,7 @@ export default function WordDetail() {
                                     </Accordion>
                                 )}
                                 {data.word_origin ? (
-                                    <Accordion title="Word origin" s={s} t={t}><Text style={s.definition}>{data.word_origin}</Text></Accordion>
+                                    <Accordion title="Word origin" s={s} t={t}><TappableText style={s.definition}>{data.word_origin}</TappableText></Accordion>
                                 ) : null}
                                 {data.see_also.length > 0 && (
                                     <View style={s.section}>
@@ -396,7 +397,7 @@ export default function WordDetail() {
                 )}
                 {viForPos?.slice(0, 6).map((m, i) => (
                     <View key={i} style={{ marginTop: 8 }}>
-                        <Text style={[s.definition, { fontSize: 15 * fs }]}>{m.definition}</Text>
+                        <Text style={[s.definition, { fontSize: 15 * fs }]} selectable>{m.definition}</Text>
                         {m.example ? <Text style={s.example}>{m.example}</Text> : null}
                     </View>
                 ))}
@@ -404,7 +405,7 @@ export default function WordDetail() {
                     <>
                         <Text style={[s.cardTitle, { marginTop: 12 }]}>Nghĩa khác</Text>
                         {viOther.slice(0, 4).map((m, i) => (
-                            <Text key={i} style={[s.definition, { marginTop: 6, fontSize: 14 * fs }]}>{m.definition}</Text>
+                            <Text key={i} style={[s.definition, { marginTop: 6, fontSize: 14 * fs }]} selectable>{m.definition}</Text>
                         ))}
                     </>
                 )}
@@ -444,7 +445,7 @@ export default function WordDetail() {
                         </Pressable>
                     </>
                 ) : savedRow?.user_meaning ? (
-                    <Text style={[s.definition, { marginTop: 8 }]}>{savedRow.user_meaning}</Text>
+                    <Text style={[s.definition, { marginTop: 8 }]} selectable>{savedRow.user_meaning}</Text>
                 ) : (
                     <Text style={[s.viFail, { marginTop: 6 }]}>Chưa có — flashcard dùng nghĩa từ điển.</Text>
                 )}
@@ -509,11 +510,12 @@ export default function WordDetail() {
 
 type Styles = ReturnType<typeof makeStyles>;
 
-function SenseBlock({ n, sense, fs, onChip, s, t }: {
+function SenseBlock({ n, sense, fs, onChip, headword, s, t }: {
     n: number;
     sense: ReturnType<typeof parseEntryData>['senses'][number];
     fs: number;
     onChip: (text: string, url?: string | null) => void;
+    headword?: string;
     s: Styles;
     t: Semantic;
 }) {
@@ -529,7 +531,7 @@ function SenseBlock({ n, sense, fs, onChip, s, t }: {
             </View>
             <View style={{ flex: 1 }}>
                 {sense.guideword ? <Text style={s.guideword}>{sense.guideword}</Text> : null}
-                <Text style={[s.definition, { fontSize: 15 * fs }]}>{sense.definition}</Text>
+                <TappableText style={[s.definition, { fontSize: 15 * fs }]} ignore={headword}>{sense.definition}</TappableText>
                 {(sense.grammar || sense.labels) ? (
                     <View style={[s.row, { marginTop: 4, gap: 6 }]}>
                         {sense.grammar ? <Text style={s.tagBadge}>{sense.grammar.replace(/^\[|\]$/g, '')}</Text> : null}
@@ -537,7 +539,7 @@ function SenseBlock({ n, sense, fs, onChip, s, t }: {
                     </View>
                 ) : null}
                 {shown.map((ex, j) => (
-                    <Text key={j} style={s.example}>{ex.text}</Text>
+                    <TappableText key={j} style={s.example} ignore={headword}>{ex.text}</TappableText>
                 ))}
                 {examples.length > 2 && (
                     <Pressable onPress={() => setMore((v) => !v)}>

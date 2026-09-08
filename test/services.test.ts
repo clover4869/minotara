@@ -8,6 +8,7 @@ import { grade, buildSession, buildAheadSession, dueBoxCounts, SessionQueue, box
 import { migrateUserDb, saveWord, savedStats, getSetting, setSetting, nextDueAt, getCachedImages, cacheImages } from '../src/db/user';
 import { getViMeanings, meaningsForPos, meaningsOtherPos, normalizeViPos } from '../src/services/vi-meaning';
 import { searchImages, parseBingImages, IMAGE_CACHE_TTL_MS } from '../src/services/image-search';
+import { splitWords, normalizeWord } from '../src/services/tokenize';
 
 /** better-sqlite3 wrapped to look like expo-sqlite's async API. */
 function wrap(db: Database.Database): DbLike {
@@ -697,5 +698,27 @@ describe('thanh tiến độ phiên ôn tập', () => {
             prev = cur;
         }
         expect(q.done).toBe(true);
+    });
+});
+
+describe('tokenize — tách từ cho double-tap tra cứu', () => {
+    it('phần tử lẻ luôn là từ, ghép lại ra đúng chuỗi gốc', () => {
+        const text = 'Food will last longer (if kept) in an airtight container.';
+        const parts = splitWords(text);
+        expect(parts.join('')).toBe(text);
+        parts.forEach((p, i) => {
+            if (i % 2 === 1) expect(p).toMatch(/^[A-Za-zÀ-ɏ]/);
+        });
+        expect(parts.filter((_, i) => i % 2 === 1)).toContain('airtight');
+    });
+    it("nháy trong từ giữ nguyên, nháy làm ngoặc bị gọt", () => {
+        const parts = splitWords("don't say 'word'");
+        expect(parts.filter((_, i) => i % 2 === 1)).toContain("don't");
+        expect(normalizeWord("don't")).toBe("don't");
+        expect(normalizeWord("'word'")).toBe('word');
+        expect(normalizeWord('’’')).toBe('');
+    });
+    it('từ có gạch nối là một token', () => {
+        expect(splitWords('a well-known fact').filter((_, i) => i % 2 === 1)).toContain('well-known');
     });
 });
