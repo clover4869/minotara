@@ -458,7 +458,13 @@ export default function WordDetail() {
     return (
         <SafeAreaView style={s.root} edges={['top']}>
             <View style={s.header}>
-                <IconButton icon={Icons.ArrowLeft} label="Quay lại" onPress={() => router.back()} />
+                {/* Icon nhà thay cho mũi tên back: tra chuỗi container → bottle
+                    → glass xong thì một chạm về thẳng Trang chủ, khỏi lùi từng
+                    màn. Lùi TỪNG BƯỚC vẫn còn nguyên qua nút/vuốt back hệ thống
+                    của Android — nút này chỉ là lối tắt thoát hẳn, không thay
+                    thế back. dismissTo pop tới '/', không có trong lịch sử thì
+                    replace, đường nào cũng về home. */}
+                <IconButton icon={Icons.House} label="Về Trang chủ" onPress={() => router.dismissTo('/')} />
                 <Text style={s.headQuery}>{result.query}</Text>
                 <IconButton icon={Icons.Search} label="Tra từ khác" onPress={() => setSearchOpen(true)} />
                 {entry && (
