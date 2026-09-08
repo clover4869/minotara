@@ -25,8 +25,9 @@ import { usePalette } from '@/theme/use-palette';
 import { space, radius } from '@/theme/tokens';
 import type { Semantic } from '@/theme/tokens';
 
-/** 3×3 — enough to recognise the word, not a gallery. Keeps the section from swallowing the entry. */
-const MAX_SHOWN = 9;
+/** 3×3 — enough to recognise the word, not a gallery. Keeps the section from swallowing the entry.
+ *  Export để prefetch ở màn chi tiết tải đúng bấy nhiêu thumbnail, không hơn. */
+export const MAX_SHOWN = 9;
 
 function hostOf(url: string): string {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }

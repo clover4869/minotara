@@ -3,8 +3,8 @@
  * Signature bet: form-of as a typeset sentence + IPA in mono, terracotta spine —
  * not a filled accent card (brief: the entry is the chrome).
  */
-import { useLocalSearchParams, router } from 'expo-router';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
     ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
@@ -22,7 +22,9 @@ import { playUrl, pickAudioUrl } from '@/services/audio';
 import { addHistory, getSaved, saveWord, unsaveWord, updateUserMeaning, type SavedWord } from '@/db/user';
 import { useApp, FONT_MULT } from '@/stores/app';
 import { Speaker, Chip, CefrBadge, IconButton, Icons, UiIcon } from '@/components/dict-ui';
-import { WordImages } from '@/components/word-images';
+import { Image as ExpoImage } from 'expo-image';
+import { searchImages } from '@/services/image-search';
+import { WordImages, MAX_SHOWN } from '@/components/word-images';
 import { TappableText } from '@/components/tappable-text';
 import { SearchOverlay } from '@/components/search-overlay';
 import { usePalette } from '@/theme/use-palette';
@@ -125,6 +127,43 @@ export default function WordDetail() {
         if (!autoplay || !data) return;
         playUrl(data.pronunciations?.[dialect]?.audio_mp3 ?? null);
     }, [entry?.id, autoplay]);
+
+    /*
+      Prefetch ảnh ngay khi mở từ, để lúc bấm tab Ảnh không phải ngồi nhìn
+      spinner chờ Bing. Ba chốt giữ cho nó không phá trải nghiệm:
+
+      - Chờ 600ms: render màn từ + autoplay phát âm đi trước, prefetch xếp sau.
+      - useFocusEffect chứ không useEffect: double-tap tra chuỗi container →
+        bottle → glass trong vài giây thì các màn bị che huỷ luôn prefetch còn
+        chờ — không bắn N request cho những từ chỉ đi ngang qua.
+      - Phân theo mạng: Wi-Fi tải cả kết quả lẫn 9 thumbnail (~200KB, mở tab là
+        hiện tức thì); 4G chỉ tải kết quả tìm — phần chậm nhất, ~50-80KB đã
+        gzip — thumbnail để lúc thật sự mở tab, đỡ tốn data cho người không xem.
+
+      Đã mở tab rồi (visited có V_IMG) thì thôi — WordImages tự lo. Trùng lời
+      gọi với WordImages thì map inflight trong image-search.ts gộp làm một.
+    */
+    const visitedRef = useRef(visited);
+    visitedRef.current = visited;
+    useFocusEffect(useCallback(() => {
+        if (!result || result.kind === 'miss') return;
+        const q = result.formOf[0]?.lemma ?? result.entries[0]?.headword ?? result.query;
+        if (!q) return;
+        let alive = true;
+        const timer = setTimeout(async () => {
+            try {
+                if (visitedRef.current.has(V_IMG)) return;
+                const net = await Network.getNetworkStateAsync();
+                if (!alive || !net.isConnected) return;
+                const wifi = net.type === Network.NetworkStateType.WIFI
+                    || net.type === Network.NetworkStateType.ETHERNET;
+                const r = await searchImages(await openUser(), q);
+                if (!alive || r.failed || !wifi) return;
+                ExpoImage.prefetch(r.results.slice(0, MAX_SHOWN).map((x) => x.thumbnail));
+            } catch { /* prefetch là cơ hội, không phải nghĩa vụ — hỏng thì tab Ảnh tự lo như cũ */ }
+        }, 600);
+        return () => { alive = false; clearTimeout(timer); };
+    }, [result?.query]));
 
     if (!result) {
         return (

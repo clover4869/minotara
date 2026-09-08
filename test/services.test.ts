@@ -457,6 +457,26 @@ describe('image-search (Bing)', () => {
         expect(b.results).toHaveLength(9);
     });
 
+    it('hai lời gọi đồng thời cùng query dùng chung MỘT request — prefetch và tab Ảnh không bắn Bing hai phát', async () => {
+        const user = await makeUser();
+        let calls = 0;
+        const slowFetch = (async () => {
+            calls++;
+            await new Promise((r) => setTimeout(r, 20));
+            return ok(page(9));
+        }) as any;
+        const [a, b] = await Promise.all([
+            searchImages(user, 'cat', 1, slowFetch),
+            searchImages(user, 'cat', 1, slowFetch),
+        ]);
+        expect(calls).toBe(1);
+        expect(a.results).toHaveLength(9);
+        expect(b.results).toHaveLength(9);
+        // xong rồi thì map inflight phải rỗng: lời gọi sau đi đường cache, không dính promise cũ
+        const c = await searchImages(user, 'cat', 1, (() => { throw new Error('không được gọi'); }) as any);
+        expect(c.fromCache).toBe(true);
+    });
+
     it('giải mã &amp; đúng thứ tự, không ra "&quot;" lạc trong tiêu đề', () => {
         expect(parseBingImages(page(1))[0].title).toBe('Ảnh 0 & bạn');
     });

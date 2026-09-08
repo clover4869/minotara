@@ -142,15 +142,47 @@ export function parseBingImages(html: string): ImageResult[] {
  * gọi phải tự kiểm tra mạng trước khi nói với người dùng là do mạng — nói sai
  * nguyên nhân thì họ đi sửa Wi-Fi trong khi lỗi nằm ở nguồn ảnh.
  */
+export interface ImageSearchOut {
+    results: ImageResult[];
+    fromCache: boolean;
+    failed: boolean;
+}
+
+/**
+ * Gộp các lời gọi trùng đang chạy: màn chi tiết prefetch ngay khi mở từ, và
+ * nếu người dùng bấm tab Ảnh trong lúc đó thì WordImages gọi cùng query —
+ * không có map này là hai request Bing giống hệt nhau bắn song song, vừa phí
+ * vừa tăng nguy cơ dính chặn tốc độ (Bing chặn thì trả trang cụt, xem
+ * MIN_TRUSTWORTHY). Xoá khỏi map trong finally nên thất bại không bị ghim.
+ */
+const inflight = new Map<string, Promise<ImageSearchOut>>();
+
 export async function searchImages(
     userDb: DbLike,
     rawQuery: string,
     page = 1,
     fetchImpl: typeof fetch = fetch,
-): Promise<{ results: ImageResult[]; fromCache: boolean; failed: boolean }> {
+): Promise<ImageSearchOut> {
     const query = rawQuery.trim().toLowerCase();
     if (!query) return { results: [], fromCache: false, failed: false };
+    const key = `${query}\u0000${page}`;
+    const running = inflight.get(key);
+    if (running) return running;
+    const p = doSearch(userDb, query, page, fetchImpl);
+    inflight.set(key, p);
+    try {
+        return await p;
+    } finally {
+        inflight.delete(key);
+    }
+}
 
+async function doSearch(
+    userDb: DbLike,
+    query: string,
+    page: number,
+    fetchImpl: typeof fetch,
+): Promise<ImageSearchOut> {
     const cached = await getCachedImages(userDb, query, page, IMAGE_CACHE_TTL_MS);
     if (cached) {
         try {
