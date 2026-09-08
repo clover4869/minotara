@@ -5,8 +5,9 @@
  * persists whatever was graded so far.
  */
 import { useEffect, useMemo, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
+import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image as ExpoImage } from 'expo-image';
 import { router } from 'expo-router';
 
 import { maskHeadword } from '@/services/srs';
@@ -158,10 +159,31 @@ export default function ReviewSessionScreen() {
                                 {card.ipa ? <Text style={s.cardIpa}>{card.ipa}</Text> : null}
                                 <Text style={s.tapHint}>Chạm để xem nghĩa</Text>
                             </>
-                        ) : mode === 'listen' ? (
+                        ) : mode === 'image2word' ? (
                             <>
-                                <Text style={{ fontSize: 32 }}>🔊</Text>
-                                <Text style={s.tapHint}>Chạm thẻ để xem từ</Text>
+                                {card.images === undefined ? (
+                                    <ActivityIndicator size="small" color={t.accent.bg} />
+                                ) : card.images.length > 0 ? (
+                                    <View style={s.imgGrid}>
+                                        {/* % + aspectRatio đặt trên View bọc, ảnh flex:1 bên
+                                            trong — đúng pattern lưới tab Ảnh đang chạy. Đặt
+                                            width % thẳng lên ExpoImage thì ô có kích thước mà
+                                            ảnh không vẽ (đã dính trên bản release New Arch). */}
+                                        {card.images.map((u) => (
+                                            <View key={u} style={s.imgCell}>
+                                                <ExpoImage source={{ uri: u }} style={{ flex: 1 }} contentFit="cover" />
+                                            </View>
+                                        ))}
+                                    </View>
+                                ) : (
+                                    // không có ảnh (offline / nguồn chặn / từ quá trừu tượng):
+                                    // rơi về gợi ý bằng tai như thẻ nghe cũ, phiên không kẹt
+                                    <>
+                                        <Text style={{ fontSize: 32 }}>🔊</Text>
+                                        <Text style={s.cardExample}>Không tải được ảnh — nghe phát âm và đoán</Text>
+                                    </>
+                                )}
+                                <Text style={s.tapHint}>Chạm để xem từ</Text>
                             </>
                         ) : (
                             <>
@@ -237,6 +259,16 @@ function makeStyles(t: Semantic) {
         cardDictDef: { fontSize: 13, color: t.text.secondary, textAlign: 'center', marginTop: 8 },
         cardExample: { fontSize: 13, color: t.text.secondary, fontStyle: 'italic', textAlign: 'center', marginTop: 10 },
         cardForms: { fontSize: 12, color: t.text.tertiary, marginTop: 12 },
+        // 2×2, mỗi ô vuông ~38% bề rộng thẻ: đủ nhận ra vật trong ảnh mà thẻ
+        // không thành gallery; 4 ảnh cũng là số lượng prefetch của chế độ này.
+        imgGrid: {
+            flexDirection: 'row', flexWrap: 'wrap', gap: 8,
+            justifyContent: 'center', alignSelf: 'stretch',
+            // chừa chỗ cho tapHint (absolute, bottom 14) — không thì hàng ảnh
+            // dưới đè lên chữ "Chạm để xem từ"
+            marginBottom: 26,
+        },
+        imgCell: { width: '38%', aspectRatio: 1, borderRadius: 10, overflow: 'hidden', backgroundColor: t.surface.raised },
         userTag: { fontSize: 11, color: t.text.warning },
         tapHint: { position: 'absolute', bottom: 14, fontSize: 12, color: t.text.tertiary },
         gradeBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },

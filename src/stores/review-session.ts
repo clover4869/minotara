@@ -10,11 +10,18 @@ import { openDictionary, openUser } from '@/db/open';
 import { loadSrsStates, persistGrades, nextDueAt, type NextDue, type SavedWord } from '@/db/user';
 import { SessionQueue, shuffle, type SrsState } from '@/services/srs';
 import { formsOfEntry } from '@/services/lookup';
+import { searchImages } from '@/services/image-search';
 import { parseEntryData } from '@/db/types';
 import { playRepeating, stopRepeat, playUrl } from '@/services/audio';
 import { useApp } from '@/stores/app';
 
-export type ReviewMode = 'word2meaning' | 'meaning2word' | 'listen';
+/**
+ * 'image2word' thế chỗ 'listen': từ khi autoplay phát lặp ở MỌI chế độ, giá
+ * trị riêng của thẻ nghe chỉ còn là giấu chữ — mà meaning2word cũng giấu chữ
+ * và còn có định nghĩa làm câu hỏi. Thẻ ảnh cho một kiểu gợi nhớ khác hẳn
+ * (thị giác), dùng lại luôn cache ảnh của tab Ảnh.
+ */
+export type ReviewMode = 'word2meaning' | 'meaning2word' | 'image2word';
 export type SessionPhase = 'card' | 'done';
 
 export interface CardContent {
@@ -23,6 +30,9 @@ export interface CardContent {
     ipa: string | null;
     audio: string | null;
     definition: string;
+    /** Thumbnail cho chế độ Ảnh → Từ. undefined = chưa tải (spinner);
+     *  [] = đã thử mà không có (fallback loa); chỉ tải khi ở đúng chế độ đó. */
+    images?: string[];
     isUserMeaning: boolean;
     dictDefinition: string | null;
     example: string | null;
@@ -173,11 +183,28 @@ async function showCurrent(
     const dialect = useApp.getState().prefDialect;
     const c = await loadCard(get().cache, cur.entry_id, dialect);
     set({ card: c });
-    const mode = get().mode;
     const { autoplay } = useApp.getState();
     // Bật autoplay là phát, mọi chế độ, không chờ lật thẻ. Kể cả
-    // meaning2word — ở đó phát âm thanh lên là hé đáp án, nhưng đó là điều
-    // người dùng chọn khi bật công tắc này, không phải chỗ để app cản.
+    // meaning2word/image2word — ở đó phát âm thanh lên là hé đáp án, nhưng
+    // đó là điều người dùng chọn khi bật công tắc này, không phải chỗ app cản.
     if (autoplay) playRepeating(c.audio);
-    else if (mode === 'listen') playUrl(c.audio);
+
+    // Ảnh cho thẻ Ảnh → Từ: tải NGOÀI luồng hiện thẻ — chờ mạng xong mới cho
+    // thẻ hiện là phiên ôn khựng lại theo Bing. Thẻ hiện ngay với spinner,
+    // ảnh về thì điền vào nếu người dùng còn đứng ở đúng thẻ đó. Kết quả ghi
+    // cả vào cache phiên nên thẻ bị hỏi lại (từ mới phải đúng 2 lần) không
+    // tải lại; thất bại ghi [] — một lần thử mỗi phiên, không dội Bing theo
+    // mỗi lượt thẻ quay về.
+    if (get().mode === 'image2word' && c.images === undefined) {
+        (async () => {
+            let imgs: string[] = [];
+            try {
+                const r = await searchImages(await openUser(), c.headword);
+                if (!r.failed) imgs = r.results.slice(0, 4).map((x) => x.thumbnail);
+            } catch { /* giữ imgs = [] — fallback loa */ }
+            const withImgs = { ...c, images: imgs };
+            get().cache.set(withImgs.entry_id, withImgs);
+            if (get().card?.entry_id === withImgs.entry_id) set({ card: withImgs });
+        })();
+    }
 }

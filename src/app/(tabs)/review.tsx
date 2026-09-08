@@ -81,7 +81,7 @@ export default function ReviewStartScreen() {
             <View style={[s.rowGap, { marginTop: 14 }]}>
                 <ModeChip label="Từ → Nghĩa" active={mode === 'word2meaning'} onPress={() => setMode('word2meaning')} s={s} />
                 <ModeChip label="Nghĩa → Từ" active={mode === 'meaning2word'} onPress={() => setMode('meaning2word')} s={s} />
-                <ModeChip label="Nghe → Từ" active={mode === 'listen'} onPress={() => setMode('listen')} s={s} />
+                <ModeChip label="Ảnh → Từ" active={mode === 'image2word'} onPress={() => setMode('image2word')} s={s} />
             </View>
             {/* Chỉ giải thích chế độ ĐANG chọn: ba dòng cùng lúc là ba dòng để
                 đọc lướt rồi bỏ qua, một dòng đúng lúc thì người ta đọc. */}
@@ -125,7 +125,7 @@ export default function ReviewStartScreen() {
 const MODE_HINT: Record<ReviewMode, string> = {
     word2meaning: 'Hiện từ trước, bạn nhớ lại nghĩa.',
     meaning2word: 'Hiện nghĩa trước, bạn nhớ lại từ.',
-    listen: 'Chỉ phát âm thanh, bạn đoán từ.',
+    image2word: 'Nhìn ảnh, bạn đoán từ.',
 };
 
 type Styles = ReturnType<typeof makeStyles>;
