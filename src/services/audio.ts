@@ -72,9 +72,9 @@ export async function playUrl(url: string | null | undefined): Promise<boolean> 
 
 /**
  * Lặp NỐI ĐUÔI, không khoảng chờ: phát xong là phát lại ngay (sự kiện
- * didJustFinish), và mỗi vòng ĐỌC NHANH thêm một chút — 1.00x, 1.05x, 1.10x…
- * trần 1.5x (chạm trần sau 10 vòng). Trần là bắt buộc: không trần thì một
- * phút sau giọng thành sóc chuột. `shouldCorrectPitch` giữ cao độ giọng khi
+ * didJustFinish), và mỗi vòng ĐỌC NHANH thêm một chút — +1%/vòng, tăng êm
+ * tới mức khó nhận ra từng nấc; trần 1.5x (chạm sau 50 vòng ≈ nửa phút đứng
+ * trên thẻ). Trần là bắt buộc: không trần thì giọng thành sóc chuột. `shouldCorrectPitch` giữ cao độ giọng khi
  * tăng tốc trên Android; tham số 'high' của setPlaybackRate là bản iOS của
  * cùng việc đó. Sang thẻ mới thì playRepeating gọi lại → về 1.0x.
  *
@@ -83,7 +83,7 @@ export async function playUrl(url: string | null | undefined): Promise<boolean> 
  * listener. seekTo là async: play() nằm trong .then, không thì lệnh play chạy
  * trước khi con trỏ về đầu và vòng đó bị nuốt.
  */
-const RATE_STEP = 0.05;
+const RATE_STEP = 0.01;
 const RATE_MAX = 1.5;
 
 /**
