@@ -145,6 +145,10 @@ export default function ReviewSessionScreen() {
                 <Text style={s.secondaryText}>còn {queue.remaining}</Text>
             </View>
 
+            {/* Thẻ + hàng chấm điểm căn giữa phần còn lại của màn. Xếp thẳng
+                từ trên xuống thì thẻ dính sát thanh tiến độ còn chỗ trống dồn
+                hết xuống đáy. */}
+            <View style={s.cardArea}>
             <Pressable onPress={flip}>
                 <Animated.View style={[s.cardBox, { transform: [{ scale: flipAnim }] }]}>
                     {!flipped ? (
@@ -182,16 +186,25 @@ export default function ReviewSessionScreen() {
                 </Animated.View>
             </Pressable>
 
-            {flipped && (
-                <View style={s.rowGap}>
-                    <Pressable style={[s.gradeBtn, { backgroundColor: t.status.errorBg }]} onPress={() => answer(false)}>
-                        <Text style={[s.gradeText, { color: t.text.error }]}>✕ Chưa nhớ</Text>
-                    </Pressable>
-                    <Pressable style={[s.gradeBtn, { backgroundColor: t.status.successBg }]} onPress={() => answer(true)}>
-                        <Text style={[s.gradeText, { color: t.text.success }]}>✓ Đã nhớ</Text>
-                    </Pressable>
-                </View>
-            )}
+            {/* Luôn dựng hàng nút, chỉ ẩn đi khi chưa lật — không phải `flipped &&`.
+                Bỏ hẳn ra khỏi cây thì lúc lật, hàng nút xuất hiện làm cụm cao
+                thêm và thẻ bị đẩy nhảy lên. Ẩn bằng opacity thì chiều cao giữ
+                nguyên nên thẻ đứng yên. Không dùng chiều cao cứng vì nút đổi cỡ
+                theo cỡ chữ hệ thống. */}
+            <View
+                style={[s.rowGap, !flipped && { opacity: 0 }]}
+                pointerEvents={flipped ? 'auto' : 'none'}
+                accessibilityElementsHidden={!flipped}
+                importantForAccessibility={flipped ? 'auto' : 'no-hide-descendants'}
+            >
+                <Pressable style={[s.gradeBtn, { backgroundColor: t.status.errorBg }]} onPress={() => answer(false)}>
+                    <Text style={[s.gradeText, { color: t.text.error }]}>✕ Chưa nhớ</Text>
+                </Pressable>
+                <Pressable style={[s.gradeBtn, { backgroundColor: t.status.successBg }]} onPress={() => answer(true)}>
+                    <Text style={[s.gradeText, { color: t.text.success }]}>✓ Đã nhớ</Text>
+                </Pressable>
+            </View>
+            </View>
         </SafeAreaView>
     );
 }
@@ -199,6 +212,7 @@ export default function ReviewSessionScreen() {
 function makeStyles(t: Semantic) {
     return StyleSheet.create({
         root: { flex: 1, backgroundColor: t.surface.canvas },
+        cardArea: { flex: 1, justifyContent: 'center' },
         center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.surface.canvas },
         big: { fontSize: 44, fontWeight: '600', color: t.text.primary },
         secondaryText: { color: t.text.secondary },
