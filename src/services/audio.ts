@@ -22,7 +22,7 @@ async function cacheKey(url: string): Promise<string> {
 }
 
 let player: AudioPlayer | null = null;
-let repeatTimer: ReturnType<typeof setInterval> | null = null;
+let repeatTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Tăng mỗi lần stopRepeat(). `playRepeating()` phải await tải file về, và
@@ -71,7 +71,18 @@ export async function playUrl(url: string | null | undefined): Promise<boolean> 
 }
 
 /**
- * 05B-03b: lặp mỗi 3s cho tới khi stopRepeat() (gọi lúc chấm điểm/lật/unmount).
+ * Nhịp lặp dồn dần theo thời gian đứng trên MỘT thẻ: 3,0s → 2,8s → 2,6s → …
+ * sàn 1,5s (chạm sàn sau ~16 giây). Đứng càng lâu — tức đang cố nhớ — thì từ
+ * vang càng dày, như một cú thúc nhẹ; sang thẻ mới là về lại 3,0s. Phải có
+ * sàn: không sàn thì đứng một phút là thành tiếng gõ liên hồi. Vì khoảng chờ
+ * đổi theo từng lần nên dùng setTimeout nối đuôi, không dùng setInterval.
+ */
+const REPEAT_BASE_MS = 3000;
+const REPEAT_STEP_MS = 200;
+const REPEAT_FLOOR_MS = 1500;
+
+/**
+ * 05B-03b: lặp cho tới khi stopRepeat() (gọi lúc chấm điểm/lật/unmount).
  *
  * stopRepeat() phải chạy NGAY đầu hàm, trước mọi await. Trước đây nó chỉ chạy
  * bên trong playUrl(), mà playUrl() lại `return false` sớm khi url null hoặc
@@ -84,9 +95,21 @@ export async function playRepeating(url: string | null | undefined): Promise<voi
     const mine = generation;
     if (!(await loadAndPlay(url, mine))) return; // offline mà chưa cache → im lặng, không báo lỗi
     if (mine !== generation) return;             // đã sang thẻ khác trong lúc tải
-    repeatTimer = setInterval(() => {
-        try { player?.seekTo(0); player?.play(); } catch { stopRepeat(); }
-    }, 3000);
+    let repeats = 0; // số lần đã lặp lại — quyết định khoảng chờ co dần
+    const scheduleNext = () => {
+        const delay = Math.max(REPEAT_FLOOR_MS, REPEAT_BASE_MS - REPEAT_STEP_MS * repeats);
+        repeatTimer = setTimeout(() => {
+            try {
+                player?.seekTo(0);
+                player?.play();
+                repeats++;
+                scheduleNext();
+            } catch {
+                stopRepeat();
+            }
+        }, delay);
+    };
+    scheduleNext();
 }
 
 /**
@@ -95,7 +118,7 @@ export async function playRepeating(url: string | null | undefined): Promise<voi
  */
 export function stopRepeat(): void {
     generation++;
-    if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
+    if (repeatTimer) { clearTimeout(repeatTimer); repeatTimer = null; }
     try { player?.pause(); } catch { /* player đã bị remove() — không có gì phải dừng */ }
 }
 

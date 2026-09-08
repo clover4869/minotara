@@ -88,7 +88,7 @@ export default function SettingsScreen() {
                     />
                 </Row>
                 <Row label="Tự động phát âm"
-                    sub="Mở từ thì đọc một lần. Ôn tập thì lặp mỗi 3 giây đến khi sang thẻ khác."
+                    sub="Mở từ thì đọc một lần. Ôn tập thì đọc lặp, nhịp dày dần đến khi sang thẻ khác."
                     s={s}>
                     <Switch value={app.autoplay} onValueChange={app.setAutoplay} />
                 </Row>
