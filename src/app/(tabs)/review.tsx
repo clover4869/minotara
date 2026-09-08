@@ -63,11 +63,6 @@ export default function ReviewStartScreen() {
     const hasBoxes = boxes.some((n) => n > 0);
     return (
         <SafeAreaView style={[s.root, { paddingBottom: tabSpace }]} edges={['top']}>
-            {/* Cụm thao tác chiếm phần trên và tự căn giữa trong đó; khối hướng
-                dẫn nằm ngoài nên luôn neo đáy. Nhét tất cả vào một cột căn giữa
-                thì phần hướng dẫn đẩy mọi thứ lên, để lại một mảng trống to ở
-                trên và chính nó thì lửng lơ giữa màn. */}
-            <View style={s.hero}>
             <Text style={s.big}>{dueCount}</Text>
             <Text style={s.secondaryText}>thẻ đến hạn hôm nay</Text>
             {hasBoxes && (
@@ -83,7 +78,7 @@ export default function ReviewStartScreen() {
                     <Text style={s.caption}>Mức nhớ 1–5 · càng cao càng lâu mới phải ôn lại</Text>
                 </>
             )}
-            <View style={[s.rowGap, { marginTop: 20 }]}>
+            <View style={[s.rowGap, { marginTop: 14 }]}>
                 <ModeChip label="Từ → Nghĩa" active={mode === 'word2meaning'} onPress={() => setMode('word2meaning')} s={s} />
                 <ModeChip label="Nghĩa → Từ" active={mode === 'meaning2word'} onPress={() => setMode('meaning2word')} s={s} />
                 <ModeChip label="Nghe → Từ" active={mode === 'listen'} onPress={() => setMode('listen')} s={s} />
@@ -106,7 +101,6 @@ export default function ReviewStartScreen() {
             {!dueCount && !aheadCount && (
                 <Text style={s.hintText}>Lưu từ ở tab Tra cứu để có thẻ ôn</Text>
             )}
-            </View>
 
             {/* Ba điều người dùng không đoán ra được từ giao diện: vì sao số thẻ
                 mỗi ngày mỗi khác, vì sao một từ hiện lại mấy lần trong cùng phiên,
@@ -147,15 +141,18 @@ function ModeChip({ label, active, onPress, s }: { label: string; active: boolea
 function makeStyles(t: Semantic) {
     return StyleSheet.create({
         root: {
-            flex: 1, backgroundColor: t.surface.canvas,
+            // Một cột căn giữa, không tách "cụm thao tác" và "hướng dẫn" thành
+            // hai khối neo hai đầu: làm vậy thì chỗ trống dồn vào GIỮA hai khối
+            // thành một cái hố, còn căn giữa thì nó rơi ra hai mép và đọc như lề.
+            flex: 1, alignItems: 'center', justifyContent: 'center',
+            backgroundColor: t.surface.canvas,
             paddingHorizontal: 24, // paddingBottom: useTabBarSpace(), gán ở chỗ dùng
         },
-        hero: { flex: 1, alignItems: 'center', justifyContent: 'center' },
         big: { fontSize: 44, fontWeight: '600', color: t.text.primary },
         secondaryText: { color: t.text.secondary },
         hintText: { color: t.text.tertiary, marginTop: 10, fontSize: 13 },
-        rowGap: { flexDirection: 'row', gap: 12, padding: 16, flexWrap: 'wrap', justifyContent: 'center' },
-        primaryBtn: { marginTop: 20, backgroundColor: t.surface.inverse, paddingHorizontal: 36, paddingVertical: 13, borderRadius: 12 },
+        rowGap: { flexDirection: 'row', gap: 10, paddingVertical: 14, flexWrap: 'wrap', justifyContent: 'center' },
+        primaryBtn: { marginTop: 18, backgroundColor: t.surface.inverse, paddingHorizontal: 36, paddingVertical: 13, borderRadius: 12 },
         primaryBtnText: { color: t.text.onInverse, fontSize: 15, fontWeight: '600' },
         ghostBtn: { marginTop: 12, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: t.border.default },
         ghostBtnText: { fontSize: 14, color: t.text.secondary, fontWeight: '600' },
@@ -167,14 +164,14 @@ function makeStyles(t: Semantic) {
         barCol: { alignItems: 'center', width: 22 },
         bar: { width: 14, backgroundColor: t.accent.bg, borderRadius: 4 },
         barLabel: { fontSize: 10, color: t.text.tertiary, marginTop: 4 },
-        caption: { fontSize: 12, color: t.text.tertiary, marginTop: 10, textAlign: 'center' },
+        caption: { fontSize: 12, color: t.text.tertiary, marginTop: 2, textAlign: 'center' },
         // Căn trái trong một khối hẹp: chữ căn giữa nhiều dòng thì mắt phải dò
         // lại điểm bắt đầu ở mỗi dòng.
-        guide: { marginBottom: 8, gap: 7 },
+        guide: { marginTop: 30, gap: 6, alignSelf: 'stretch' },
         guideTitle: {
             fontSize: 11, fontWeight: '600', color: t.text.tertiary,
             letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 2,
         },
-        guideLine: { fontSize: 13, lineHeight: 19, color: t.text.secondary },
+        guideLine: { fontSize: 13, lineHeight: 18, color: t.text.secondary },
     });
 }
