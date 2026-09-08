@@ -630,3 +630,51 @@ describe('dailyWords — gợi ý hằng ngày', () => {
         await expect(dailyWords(dictWithCefr(), 1, [])).resolves.toHaveLength(1);
     });
 });
+
+describe('thanh tiến độ phiên ôn tập', () => {
+    const now = new Date('2026-08-20T10:00:00Z');
+    /** last_result === null → isNewCard(): phải đúng 2 lần mới tốt nghiệp. */
+    const newCard = (id: number): SrsState =>
+        ({ entry_id: id, box: 1, due_at: '2026-08-20T00:00:00Z', streak: 0, last_result: null });
+
+    /** Đúng công thức màn hình dùng. */
+    const pct = (q: SessionQueue) => q.answered / Math.max(1, q.answered + q.remaining);
+
+    it('remaining đứng yên suốt lượt đầu — đây là lý do thanh cũ trông như hỏng', () => {
+        const q = new SessionQueue(Array.from({ length: 10 }, (_, i) => newCard(i)), now, () => 0.5);
+        expect(q.remaining).toBe(10);
+        for (let i = 0; i < 10; i++) q.answer(true); // lượt 1: tất cả bị đưa lại hàng đợi
+        expect(q.remaining).toBe(10);               // total - remaining vẫn = 0
+        expect(q.answered).toBe(10);                // nhưng đã trả lời 10 câu
+    });
+
+    it('tiến độ mới tăng ở MỌI câu trả lời và không bao giờ tụt', () => {
+        const q = new SessionQueue(Array.from({ length: 10 }, (_, i) => newCard(i)), now, () => 0.5);
+        let prev = pct(q);
+        expect(prev).toBe(0);
+        let guard = 0;
+        while (!q.done && guard++ < 500) {
+            q.answer(true);
+            const cur = pct(q);
+            expect(cur).toBeGreaterThan(prev);
+            prev = cur;
+        }
+        expect(q.done).toBe(true);
+        expect(pct(q)).toBe(1); // hàng đợi rỗng → đúng 100%
+    });
+
+    it('trả lời sai vẫn không làm thanh tụt lùi', () => {
+        const q = new SessionQueue(Array.from({ length: 5 }, (_, i) => newCard(i)), now, () => 0.5);
+        let prev = pct(q);
+        let guard = 0;
+        // xen kẽ sai/đúng: câu sai làm hits về 0 nên remaining có lúc không giảm
+        while (!q.done && guard < 300) {
+            q.answer(guard % 3 !== 0);
+            guard++;
+            const cur = pct(q);
+            expect(cur).toBeGreaterThan(prev);
+            prev = cur;
+        }
+        expect(q.done).toBe(true);
+    });
+});

@@ -34,6 +34,7 @@ export default function ReviewSessionScreen() {
     const queue = useReviewSession((st) => st.queue);
     const card = useReviewSession((st) => st.card);
     const flipped = useReviewSession((st) => st.flipped);
+    const answered = useReviewSession((st) => st.answered);
     const nextDue = useReviewSession((st) => st.nextDue);
     const cache = useReviewSession((st) => st.cache);
     const flipAction = useReviewSession((st) => st.flip);
@@ -119,16 +120,29 @@ export default function ReviewSessionScreen() {
     if (!card || !queue) return null;
     const frontIsWord = mode === 'word2meaning';
     const maskedEx = card.example ? maskHeadword(card.example, card.headword) : null;
-    const doneUnique = queue.total - queue.remaining;
+    /*
+      Không dùng `total - remaining` nữa. Thẻ mới phải trả lời đúng 2 lần mới
+      tốt nghiệp, chưa đủ thì SessionQueue đẩy nó lại cuối hàng đợi — nên
+      `remaining` (số thẻ khác nhau còn lại) đứng yên suốt lượt đầu. Một phiên
+      10 thẻ mới thì thanh nằm im ở 0/10 qua đúng 10 câu trả lời, nhìn như hỏng.
+
+      `answered / (answered + remaining)`: mẫu số tự lớn ra khi phiên lộ dần
+      lượng việc còn lại, nhưng tỉ lệ vẫn chỉ tăng — trả lời sai làm `remaining`
+      +1 thì tử số cũng +1, mà tử số nhỏ hơn mẫu số nên giá trị vẫn nhích lên.
+      Không bao giờ tụt lùi, và chạm đúng 100% khi hàng đợi rỗng.
+    */
+    const progress = answered / Math.max(1, answered + queue.remaining);
 
     return (
         <SafeAreaView style={s.root} edges={['top']}>
             <View style={s.topBar}>
                 <Pressable onPress={exitEarly} hitSlop={10}><Text style={s.exitIcon}>✕</Text></Pressable>
                 <View style={s.progressTrack}>
-                    <View style={[s.progressFill, { width: `${(doneUnique / Math.max(1, queue.total)) * 100}%` }]} />
+                    <View style={[s.progressFill, { width: `${progress * 100}%` }]} />
                 </View>
-                <Text style={s.secondaryText}>{doneUnique}/{queue.total}</Text>
+                {/* Số thẻ còn lại, không phải "đã xong/tổng": thẻ mới quay lại
+                    nhiều lần nên "đã xong" tăng rất chậm và mâu thuẫn với thanh. */}
+                <Text style={s.secondaryText}>còn {queue.remaining}</Text>
             </View>
 
             <Pressable onPress={flip}>

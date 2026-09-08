@@ -42,6 +42,10 @@ interface ReviewSessionState {
     card: CardContent | null;
     flipped: boolean;
     noGrade: boolean;
+    /** Tổng số lần trả lời trong phiên, kể cả các lần thẻ mới bị hỏi lại. Dùng
+     *  cho thanh tiến độ; `queue.answered` không đủ vì zustand không thấy được
+     *  thay đổi bên trong instance queue. */
+    answered: number;
     nextDue: NextDue | null;
     cache: Map<number, CardContent>;
 
@@ -96,6 +100,7 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
     card: null,
     flipped: false,
     noGrade: false,
+    answered: 0,
     nextDue: null,
     cache: new Map(),
 
@@ -105,7 +110,7 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
         const q = skipGrade
             ? new SessionQueue(shuffle(cards), new Date(), Math.random, { reinforcement: true })
             : new SessionQueue(shuffle(cards), new Date());
-        set({ queue: q, phase: 'card', noGrade: skipGrade, flipped: false, card: null });
+        set({ queue: q, phase: 'card', noGrade: skipGrade, flipped: false, card: null, answered: 0 });
         await showCurrent(q, get, set);
     },
 
@@ -122,6 +127,12 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
         if (!queue) return;
         stopRepeat();
         queue.answer(correct);
+        // `queue` là một instance bị sửa tại chỗ, zustand so sánh theo tham
+        // chiếu nên không thấy gì đổi. Màn hình vẫn vẽ lại nhờ `card` đổi —
+        // trừ đúng lúc chỉ còn một thẻ và nó bị đưa lại hàng đợi: `showCurrent`
+        // set lại đúng object cũ từ cache, không re-render, thanh tiến độ đứng
+        // im. Đẩy `answered` vào state để mỗi câu trả lời chắc chắn vẽ lại.
+        set({ answered: queue.answered });
         await showCurrent(queue, get, set);
     },
 
