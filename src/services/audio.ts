@@ -6,7 +6,7 @@
  */
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Crypto from 'expo-crypto';
-import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
+import { createAudioPlayer, type AudioPlayer, type AudioStatus } from 'expo-audio';
 
 const CACHE_DIR = `${FileSystem.cacheDirectory}audio/`;
 
@@ -22,7 +22,7 @@ async function cacheKey(url: string): Promise<string> {
 }
 
 let player: AudioPlayer | null = null;
-let repeatTimer: ReturnType<typeof setTimeout> | null = null;
+let statusSub: { remove(): void } | null = null;
 
 /**
  * Tăng mỗi lần stopRepeat(). `playRepeating()` phải await tải file về, và
@@ -71,45 +71,58 @@ export async function playUrl(url: string | null | undefined): Promise<boolean> 
 }
 
 /**
- * Nhịp lặp dồn dần theo thời gian đứng trên MỘT thẻ: 3,0s → 2,8s → 2,6s → …
- * sàn 1,5s (chạm sàn sau ~16 giây). Đứng càng lâu — tức đang cố nhớ — thì từ
- * vang càng dày, như một cú thúc nhẹ; sang thẻ mới là về lại 3,0s. Phải có
- * sàn: không sàn thì đứng một phút là thành tiếng gõ liên hồi. Vì khoảng chờ
- * đổi theo từng lần nên dùng setTimeout nối đuôi, không dùng setInterval.
+ * Lặp NỐI ĐUÔI, không khoảng chờ: phát xong là phát lại ngay (sự kiện
+ * didJustFinish), và mỗi vòng ĐỌC NHANH thêm một chút — 1.00x, 1.05x, 1.10x…
+ * trần 1.5x (chạm trần sau 10 vòng). Trần là bắt buộc: không trần thì một
+ * phút sau giọng thành sóc chuột. `shouldCorrectPitch` giữ cao độ giọng khi
+ * tăng tốc trên Android; tham số 'high' của setPlaybackRate là bản iOS của
+ * cùng việc đó. Sang thẻ mới thì playRepeating gọi lại → về 1.0x.
+ *
+ * Không dùng `player.loop`: loop tự nối vòng ở tầng native nên không có chỗ
+ * chen setPlaybackRate giữa các vòng — phải tự seekTo(0) + play() trong
+ * listener. seekTo là async: play() nằm trong .then, không thì lệnh play chạy
+ * trước khi con trỏ về đầu và vòng đó bị nuốt.
  */
-const REPEAT_BASE_MS = 3000;
-const REPEAT_STEP_MS = 200;
-const REPEAT_FLOOR_MS = 1500;
+const RATE_STEP = 0.05;
+const RATE_MAX = 1.5;
 
 /**
  * 05B-03b: lặp cho tới khi stopRepeat() (gọi lúc chấm điểm/lật/unmount).
  *
- * stopRepeat() phải chạy NGAY đầu hàm, trước mọi await. Trước đây nó chỉ chạy
- * bên trong playUrl(), mà playUrl() lại `return false` sớm khi url null hoặc
- * tải fail — nên nếu thẻ mới không có audio thì timer của thẻ cũ vẫn sống và
- * từ cũ lặp mãi trên thẻ mới.
+ * stopRepeat() phải chạy NGAY đầu hàm, trước mọi await — playUrl() `return
+ * false` sớm khi url null hoặc tải fail, nên nếu không dừng trước thì thẻ mới
+ * không có audio sẽ để vòng lặp của thẻ cũ sống tiếp.
  */
 export async function playRepeating(url: string | null | undefined): Promise<void> {
     stopRepeat();
     if (!url) return;
     const mine = generation;
-    if (!(await loadAndPlay(url, mine))) return; // offline mà chưa cache → im lặng, không báo lỗi
-    if (mine !== generation) return;             // đã sang thẻ khác trong lúc tải
-    let repeats = 0; // số lần đã lặp lại — quyết định khoảng chờ co dần
-    const scheduleNext = () => {
-        const delay = Math.max(REPEAT_FLOOR_MS, REPEAT_BASE_MS - REPEAT_STEP_MS * repeats);
-        repeatTimer = setTimeout(() => {
-            try {
-                player?.seekTo(0);
-                player?.play();
-                repeats++;
-                scheduleNext();
-            } catch {
-                stopRepeat();
-            }
-        }, delay);
-    };
-    scheduleNext();
+    const local = await ensureCached(url);
+    if (!local || mine !== generation) return; // offline chưa cache → im lặng / đã sang thẻ khác
+    try {
+        player?.remove();
+        const p = createAudioPlayer(local);
+        player = p;
+        p.shouldCorrectPitch = true;
+        let rate = 1.0;
+        p.setPlaybackRate(rate, 'high');
+        // addListener có thật lúc chạy — AudioPlayer kế thừa SharedObject →
+        // EventEmitter, và docs expo-audio chỉ đúng cách này. Nhưng npm đặt
+        // expo-modules-core NESTED trong expo/ (không hoist), nên câu import
+        // type bên trong expo-audio không resolve và TS mất chuỗi kế thừa —
+        // cast tại đúng một chỗ này với type tối thiểu thay vì tắt strict.
+        statusSub = (p as unknown as {
+            addListener(e: 'playbackStatusUpdate', cb: (st: AudioStatus) => void): { remove(): void };
+        }).addListener('playbackStatusUpdate', (st) => {
+            if (mine !== generation || !st.didJustFinish) return;
+            rate = Math.min(RATE_MAX, rate + RATE_STEP);
+            p.setPlaybackRate(rate, 'high');
+            p.seekTo(0).then(() => { if (mine === generation) p.play(); }).catch(() => {});
+        });
+        p.play();
+    } catch {
+        stopRepeat();
+    }
 }
 
 /**
@@ -118,7 +131,8 @@ export async function playRepeating(url: string | null | undefined): Promise<voi
  */
 export function stopRepeat(): void {
     generation++;
-    if (repeatTimer) { clearTimeout(repeatTimer); repeatTimer = null; }
+    statusSub?.remove();
+    statusSub = null;
     try { player?.pause(); } catch { /* player đã bị remove() — không có gì phải dừng */ }
 }
 
