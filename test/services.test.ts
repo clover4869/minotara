@@ -7,7 +7,7 @@ import { matchImport } from '../src/services/import-matcher';
 import { grade, buildSession, buildAheadSession, dueBoxCounts, SessionQueue, boxFromStability, previewIntervals, maskHeadword, type SrsState } from '../src/services/srs';
 import { migrateUserDb, saveWord, savedStats, getSetting, setSetting, nextDueAt, getCachedImages, cacheImages } from '../src/db/user';
 import { getViMeanings, meaningsForPos, meaningsOtherPos, normalizeViPos } from '../src/services/vi-meaning';
-import { searchImages, parseBingImages, imageQueryFor, IMAGE_CACHE_TTL_MS } from '../src/services/image-search';
+import { searchImages, parseBingImages, IMAGE_CACHE_TTL_MS } from '../src/services/image-search';
 import { splitWords, normalizeWord } from '../src/services/tokenize';
 
 /** better-sqlite3 wrapped to look like expo-sqlite's async API. */
@@ -740,12 +740,5 @@ describe('tokenize — tách từ cho double-tap tra cứu', () => {
     });
     it('từ có gạch nối là một token', () => {
         expect(splitWords('a well-known fact').filter((_, i) => i % 2 === 1)).toContain('well-known');
-    });
-});
-
-describe('imageQueryFor', () => {
-    it('thêm " meaning" — tab Ảnh dùng; thẻ ôn Ảnh → Từ cố ý KHÔNG dùng (lộ đáp án)', () => {
-        expect(imageQueryFor('middle')).toBe('middle meaning');
-        expect(imageQueryFor('  otter ')).toBe('otter meaning');
     });
 });

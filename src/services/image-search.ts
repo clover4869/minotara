@@ -48,24 +48,6 @@ export const IMAGE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 
 /**
- * Query cho tab Ảnh và prefetch: thêm " meaning" vào sau từ.
- *
- * Từ trừu tượng tìm TRẦN trên Bing ra văn hoá đại chúng chứ không ra khái
- * niệm — đo thật: "middle" trần trả phim sitcom The Middle, Trung Đông,
- * wallpaper; "bid" trả ngân hàng BIDV (Bing đoán khu vực theo IP Việt Nam).
- * Thêm " meaning" thì "middle" ra thẻ định nghĩa/vocabulary card đúng chất
- * học từ, còn từ cụ thể vẫn giữ được ảnh vật thật ("otter meaning" vẫn ra
- * rái cá Wikipedia/Britannica, chỉ xen thêm ít symbolism). mkt=en-US một
- * mình KHÔNG đủ — đã đo, kết quả gần như không đổi.
- *
- * Thẻ ôn Ảnh → Từ KHÔNG dùng hàm này mà tìm trần: ảnh "meaning" thường in
- * chính từ đó thành chữ to — trên thẻ đố thì là lộ đáp án.
- */
-export function imageQueryFor(word: string): string {
-    return `${word.trim()} meaning`;
-}
-
-/**
  * Gọi dồn dập thì Bing trả một trang cụt ~24KB chỉ có đúng 1 kết quả, vẫn
  * HTTP 200 và không có captcha hay chữ nào báo bị chặn. Nhận về 1 tấm ảnh
  * chẳng liên quan còn tệ hơn là báo lỗi — với app học từ, ảnh sai làm người
@@ -211,10 +193,8 @@ async function doSearch(
     }
 
     const count = 35;
-    // mkt/setlang ghim kết quả về thị trường Anh-Mỹ — không có thì Bing đoán
-    // theo IP và trộn nội dung bản địa (baidu, trang tiếng Việt) vào.
     const url = `${SEARCH_URL}?q=${encodeURIComponent(query)}&async=1`
-        + `&first=${(page - 1) * count + 1}&count=${count}&mkt=en-US&setlang=en`;
+        + `&first=${(page - 1) * count + 1}&count=${count}`;
 
     for (let attempt = 0; attempt < 2; attempt++) { // timeout mỗi lần, thử lại 1 lần
         try {

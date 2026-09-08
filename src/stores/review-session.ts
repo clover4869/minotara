@@ -199,10 +199,6 @@ async function showCurrent(
         (async () => {
             let imgs: string[] = [];
             try {
-                // Cố ý tìm TRẦN, không qua imageQueryFor(): query "X meaning"
-                // hay trả thẻ định nghĩa in chính từ đó thành chữ to — trên
-                // thẻ đố thì là lộ đáp án. Đổi lại ảnh nhiễu hơn chút và không
-                // dùng chung cache với tab Ảnh.
                 const r = await searchImages(await openUser(), c.headword);
                 if (!r.failed) imgs = r.results.slice(0, 4).map((x) => x.thumbnail);
             } catch { /* giữ imgs = [] — fallback loa */ }

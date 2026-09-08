@@ -23,7 +23,7 @@ import { addHistory, getSaved, saveWord, unsaveWord, updateUserMeaning, type Sav
 import { useApp, FONT_MULT } from '@/stores/app';
 import { Speaker, Chip, CefrBadge, IconButton, Icons, UiIcon } from '@/components/dict-ui';
 import { Image as ExpoImage } from 'expo-image';
-import { searchImages, imageQueryFor } from '@/services/image-search';
+import { searchImages } from '@/services/image-search';
 import { WordImages, MAX_SHOWN } from '@/components/word-images';
 import { TappableText } from '@/components/tappable-text';
 import { SearchOverlay } from '@/components/search-overlay';
@@ -157,7 +157,7 @@ export default function WordDetail() {
                 if (!alive || !net.isConnected) return;
                 const wifi = net.type === Network.NetworkStateType.WIFI
                     || net.type === Network.NetworkStateType.ETHERNET;
-                const r = await searchImages(await openUser(), imageQueryFor(q));
+                const r = await searchImages(await openUser(), q);
                 if (!alive || r.failed || !wifi) return;
                 ExpoImage.prefetch(r.results.slice(0, MAX_SHOWN).map((x) => x.thumbnail));
             } catch { /* prefetch là cơ hội, không phải nghĩa vụ — hỏng thì tab Ảnh tự lo như cũ */ }

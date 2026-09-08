@@ -19,7 +19,7 @@ import { Image } from 'expo-image';
 import * as Network from 'expo-network';
 
 import { openUser } from '@/db/open';
-import { searchImages, imageQueryFor, type ImageResult } from '@/services/image-search';
+import { searchImages, type ImageResult } from '@/services/image-search';
 import { UiIcon, Icons } from '@/components/dict-ui';
 import { usePalette } from '@/theme/use-palette';
 import { space, radius } from '@/theme/tokens';
@@ -64,7 +64,7 @@ export function WordImages({ word }: { word: string }) {
         setFailed(null);
         (async () => {
             try {
-                const r = await searchImages(await openUser(), imageQueryFor(q));
+                const r = await searchImages(await openUser(), q);
                 if (!alive) return;
                 setResults(r.results);
                 // Chỉ hỏi trạng thái mạng khi đã fail — hỏi trước là thêm một
