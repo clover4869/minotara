@@ -11,12 +11,13 @@ import { useApp } from '@/stores/app';
 import { openDictionary, openUser, dictMeta, integrityCheckDictionary, recordDictionaryMeta, removeDictionaryFile } from '@/db/open';
 import { clearHistory, clearViCache, clearImageCache, listSaved } from '@/db/user';
 import { clearAudioCache } from '@/services/audio';
-import { TAB_BAR_HEIGHT } from '@/components/glass-tab-bar';
+import { useTabBarSpace } from '@/components/glass-tab-bar';
 import { usePalette } from '@/theme/use-palette';
 import type { Semantic } from '@/theme/tokens';
 
 export default function SettingsScreen() {
     const t = usePalette();
+    const tabSpace = useTabBarSpace();
     const s = useMemo(() => makeStyles(t), [t]);
     const app = useApp();
     const [dictVer, setDictVer] = useState<string | null>(null);
@@ -62,7 +63,7 @@ export default function SettingsScreen() {
 
     return (
         <SafeAreaView style={s.root} edges={['top']}>
-            <ScrollView contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT }}>
+            <ScrollView contentContainerStyle={{ paddingBottom: tabSpace }}>
                 <Text style={s.section}>Giao diện</Text>
                 <Row label="Giao diện" s={s}>
                     <Segmented

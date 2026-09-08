@@ -209,8 +209,20 @@ const styles = StyleSheet.create({
 });
 
 /**
- * Bottom padding screens need so their last row isn't hidden behind the
- * floating bar. Hard-coding a number in each screen would drift the moment
- * the bar's height changes.
+ * Chiều cao của riêng cái pill: row padV 8×2 + item padV 7×2 + icon 22 +
+ * nhãn (marginTop 4 + ~13) ≈ 70.
  */
-export const TAB_BAR_HEIGHT = 80;
+const PILL_HEIGHT = 70;
+
+/**
+ * Khoảng chừa dưới đáy để hàng cuối của màn không chui xuống dưới thanh tab
+ * nổi. Phải là hook chứ không phải hằng số: thanh tab tự cộng
+ * `max(insets.bottom, 12)` cho vùng an toàn, mà số đó khác nhau theo máy —
+ * máy có thanh cử chỉ thì lớn hơn hẳn máy có phím cứng. Hằng số 80 trước đây
+ * đúng cho máy này thiếu cho máy kia; các màn ScrollView không lộ ra vì cuộn
+ * che mất, còn màn layout cố định thì cắt cụt dòng cuối.
+ */
+export function useTabBarSpace(): number {
+    const insets = useSafeAreaInsets();
+    return PILL_HEIGHT + Math.max(insets.bottom, 12) + 12;
+}

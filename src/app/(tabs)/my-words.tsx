@@ -12,7 +12,7 @@ import { listSaved, savedStats, unsaveWord, type SavedOrder, type SavedWord } fr
 import { CefrBadge, IconButton, Icons, LeitnerLadder, SectionLabel, UiIcon } from '@/components/dict-ui';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { UndoToast } from '@/components/undo-toast';
-import { TAB_BAR_HEIGHT } from '@/components/glass-tab-bar';
+import { useTabBarSpace } from '@/components/glass-tab-bar';
 import { usePendingDelete } from '@/hooks/use-pending-delete';
 import { usePalette } from '@/theme/use-palette';
 import { component, radius, space, type as typeScale } from '@/theme/tokens';
@@ -27,6 +27,7 @@ const ORDERS: { key: SavedOrder; label: string }[] = [
 
 export default function MyWordsScreen() {
     const t = usePalette();
+    const tabSpace = useTabBarSpace();
     const s = useMemo(() => makeStyles(t), [t]);
     const [words, setWords] = useState<SavedWord[]>([]);
     const [stats, setStats] = useState({ total: 0, due: 0 });
@@ -99,7 +100,7 @@ export default function MyWordsScreen() {
             <FlatList
                 data={shown}
                 keyExtractor={(w) => String(w.entry_id)}
-                contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT }}
+                contentContainerStyle={{ paddingBottom: tabSpace }}
                 ListEmptyComponent={
                     <View style={s.emptyBox}>
                         <UiIcon icon={Icons.Bookmark} color={t.text.tertiary} />

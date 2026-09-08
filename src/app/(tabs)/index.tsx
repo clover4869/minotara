@@ -16,7 +16,7 @@ import {
 } from '@/db/user';
 import type { SuggestRow } from '@/db/types';
 import { CefrBadge, IconButton, Icons, SectionLabel, UiIcon } from '@/components/dict-ui';
-import { TAB_BAR_HEIGHT } from '@/components/glass-tab-bar';
+import { useTabBarSpace } from '@/components/glass-tab-bar';
 import { useApp } from '@/stores/app';
 import { usePalette } from '@/theme/use-palette';
 import { component, radius, space, type as typeScale } from '@/theme/tokens';
@@ -27,6 +27,7 @@ const DAILY_COUNT = 10;
 
 export default function SearchScreen() {
     const t = usePalette();
+    const tabSpace = useTabBarSpace();
     const s = useMemo(() => makeStyles(t), [t]);
     const [query, setQuery] = useState('');
     const [focused, setFocused] = useState(false);
@@ -141,7 +142,7 @@ export default function SearchScreen() {
                     data={rows}
                     keyExtractor={(r, i) => `${r.display}-${r.kind}-${i}`}
                     keyboardShouldPersistTaps="handled"
-                    contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT }}
+                    contentContainerStyle={{ paddingBottom: tabSpace }}
                     ListHeaderComponent={fallback
                         ? <Text style={s.empty}>Không khớp tiền tố — ý bạn là</Text>
                         : null}
@@ -176,7 +177,7 @@ export default function SearchScreen() {
                     )}
                 />
             ) : (
-                <View style={{ paddingHorizontal: space.md, paddingBottom: TAB_BAR_HEIGHT }}>
+                <View style={{ paddingHorizontal: space.md, paddingBottom: tabSpace }}>
                     {recent.length > 0 && (
                         <>
                             <SectionLabel>Gần đây</SectionLabel>
