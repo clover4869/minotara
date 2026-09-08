@@ -87,10 +87,12 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose:
                     renderItem={({ item }) => (
                         <Pressable
                             style={({ pressed }) => [s.row, pressed && { backgroundColor: t.surface.raised }]}
-                            onPress={() => go(item.display, item.entry_id)}
+                            // form đi theo chữ để giữ banner "dạng của…" ở màn chi tiết
+                            onPress={() => go(item.display, item.kind === 'headword' ? item.entry_id : null)}
                         >
                             <Text style={[s.word, item.kind === 'headword' && s.headword]}>{item.display}</Text>
                             {item.sub ? <Text style={s.sub}>{item.sub}</Text> : null}
+                            {item.def ? <Text style={s.def} numberOfLines={1}>{item.def}</Text> : null}
                         </Pressable>
                     )}
                 />
@@ -115,6 +117,7 @@ function makeStyles(t: Semantic) {
         word: { fontSize: 16, color: t.text.primary },
         headword: { fontWeight: typeScale.weight.semibold },
         sub: { fontSize: typeScale.size.xs, color: t.text.tertiary, marginTop: 2 },
+        def: { fontSize: 12, color: t.text.tertiary, marginTop: 1 },
         sep: { height: StyleSheet.hairlineWidth, backgroundColor: t.border.subtle, marginLeft: space.md },
     });
 }

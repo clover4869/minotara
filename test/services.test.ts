@@ -53,6 +53,8 @@ function makeDict(): DbLike {
     ie.run(5, 'read', 'verb', 'A1', data('read', 'verb', 'look and comprehend'));
     ie.run(6, 'sheep', 'noun', 'A2', data('sheep', 'noun', 'woolly animal'));
     ie.run(7, 'foo', 'verb', 'A1', data('foo', 'verb', 'placeholder verb'));
+    // entry dạng stub: có mặt trong search_index nhưng chưa có sense nào
+    ie.run(8, 'zebra', 'noun', 'B1', JSON.stringify({ senses: [], idioms: [], phrasal_verbs: [], word_origin: null }));
 
     const inf = db.prepare(`INSERT INTO forms (form, form_type, ipa_uk, ipa_us, lemma, lemma_pos, entry_id, source)
         VALUES (?,?,?,?,?,?,?,'test')`);
@@ -76,6 +78,7 @@ function makeDict(): DbLike {
     si.run('ran', 'form', 1, 'ran', 'past tense of run');
     si.run('read', 'headword', 5, 'read', 'verb');
     si.run('sheep', 'headword', 6, 'sheep', 'noun');
+    si.run('zebra', 'headword', 8, 'zebra', 'noun');
     return wrap(db);
 }
 
@@ -150,6 +153,24 @@ describe('suggest', () => {
     it('falls back to contains when prefix misses', async () => {
         const rows = await suggest(dict, 'unning');
         expect(rows.some((r) => r.display === 'running')).toBe(true);
+        // nhánh fallback cũng phải gắn nghĩa, không riêng nhánh prefix
+        expect(rows.find((r) => r.display === 'running')?.def).toBe('the sport');
+    });
+    it('mỗi dòng gợi ý mang nghĩa đầu tiên của entry — homograph mỗi hàng một nghĩa riêng', async () => {
+        const rows = await suggest(dict, 'run');
+        const verb = rows.find((r) => r.kind === 'headword' && r.sub === 'verb');
+        const noun = rows.find((r) => r.kind === 'headword' && r.sub === 'noun');
+        expect(verb?.def).toBe('move fast');
+        expect(noun?.def).toBe('an act of running');
+    });
+    it('hàng form mang nghĩa của lemma', async () => {
+        const rows = await suggest(dict, 'ran');
+        expect(rows.find((r) => r.kind === 'form')?.def).toBe('move fast');
+    });
+    it('entry chưa có sense nào thì def null chứ không vỡ', async () => {
+        const rows = await suggest(dict, 'zebra');
+        expect(rows[0].display).toBe('zebra');
+        expect(rows[0].def).toBeNull();
     });
 });
 

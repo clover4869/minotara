@@ -45,6 +45,9 @@ export interface SuggestRow {
     sub: string | null;
     kind: 'headword' | 'form';
     entry_id: number | null;
+    /** Nghĩa đầu tiên của entry, do attachDefs() trong lookup.ts gắn thêm —
+     *  optional vì hai query SUGGEST trả hàng thô chưa có trường này. */
+    def?: string | null;
 }
 
 /** Shape of entries.data produced by the crawler. Only fields the UI uses. */

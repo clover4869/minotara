@@ -156,7 +156,12 @@ export default function SearchScreen() {
                     renderItem={({ item }) => (
                         <Pressable
                             style={({ pressed }) => [s.suggestRow, pressed && { backgroundColor: t.surface.raised }]}
-                            onPress={() => go(item.display)}
+                            // Chỉ truyền entry_id cho headword: hàng form đi theo chữ
+                            // để màn chi tiết còn hiện banner "dạng của…". Với headword
+                            // thì id thành bắt buộc từ khi có dòng nghĩa — hai hàng "run"
+                            // giờ hiện hai nghĩa khác nhau, bấm hàng noun mà mở ra verb
+                            // là sai lộ liễu.
+                            onPress={() => go(item.display, item.kind === 'headword' ? item.entry_id ?? undefined : undefined)}
                         >
                             <UiIcon
                                 icon={item.kind === 'headword' ? Icons.BookOpen : Icons.CornerDownRight}
@@ -168,6 +173,9 @@ export default function SearchScreen() {
                                 </Text>
                                 {item.kind === 'form' && item.sub ? (
                                     <Text style={s.suggestSub}>{item.sub}</Text>
+                                ) : null}
+                                {item.def ? (
+                                    <Text style={s.suggestDef} numberOfLines={1}>{item.def}</Text>
                                 ) : null}
                             </View>
                             {item.kind === 'headword' && item.sub ? (
@@ -282,6 +290,7 @@ function makeStyles(t: Semantic) {
         suggestWord: { fontSize: 16, color: t.text.primary },
         suggestHeadword: { fontWeight: typeScale.weight.semibold },
         suggestSub: { fontSize: typeScale.size.xs, color: t.text.tertiary, marginTop: 2 },
+        suggestDef: { fontSize: 12, color: t.text.tertiary, marginTop: 1 },
         pos: { fontSize: typeScale.size.xs, color: t.text.tertiary },
         emptyBox: { alignItems: 'center', marginTop: space.xl, gap: space.sm, paddingHorizontal: space.lg },
         empty: { textAlign: 'center', color: t.text.secondary, fontSize: 15, marginTop: space.md },

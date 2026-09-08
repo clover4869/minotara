@@ -170,12 +170,42 @@ const SUGGEST_CONTAINS = `
   ORDER BY kind = 'headword' DESC, length(term)
   LIMIT 5`;
 
+/**
+ * Nghĩa đầu tiên của mỗi entry trong danh sách gợi ý — để dòng gợi ý không chỉ
+ * là từ + loại từ mà nói luôn từ đó nghĩa là gì.
+ *
+ * Lấy bằng json_extract ngay trong SQLite thay vì SELECT cả cột data rồi
+ * JSON.parse phía JS: entry lớn (take, set…) data tới vài chục KB, kéo 12 cục
+ * như thế qua cầu native mỗi lần gõ phím là việc không cần thiết khi thứ cần
+ * chỉ là một câu. COALESCE qua 3 sense đầu vì entry dạng stub có sense đầu
+ * trống nhưng sense sau có nghĩa.
+ *
+ * Đây là query thứ hai chứ không JOIN vào SUGGEST: JOIN thì json_extract chạy
+ * trên MỌI hàng khớp prefix (gõ "con" là hàng trăm hàng) trước khi ORDER BY
+ * cắt còn 12 — sort xong mới join 12 hàng thì rẻ hơn hẳn.
+ */
+const FIRST_DEFS = (n: number) => `
+  SELECT id, COALESCE(
+    json_extract(data, '$.senses[0].definition'),
+    json_extract(data, '$.senses[1].definition'),
+    json_extract(data, '$.senses[2].definition')
+  ) AS def
+  FROM entries WHERE id IN (${Array(n).fill('?').join(',')})`;
+
+async function attachDefs(db: DbLike, rows: SuggestRow[]): Promise<SuggestRow[]> {
+    const ids = [...new Set(rows.map((r) => r.entry_id).filter((x): x is number => x != null))];
+    if (!ids.length) return rows;
+    const defs = await db.getAllAsync<{ id: number; def: string | null }>(FIRST_DEFS(ids.length), ...ids);
+    const byId = new Map(defs.map((d) => [d.id, d.def]));
+    return rows.map((r) => ({ ...r, def: r.entry_id != null ? byId.get(r.entry_id) ?? null : null }));
+}
+
 export async function suggest(db: DbLike, raw: string): Promise<SuggestRow[]> {
     const q = normalizeQuery(raw);
     if (!q) return [];
     const rows = await db.getAllAsync<SuggestRow>(SUGGEST, q);
-    if (rows.length) return rows;
-    return db.getAllAsync<SuggestRow>(SUGGEST_CONTAINS, q); // 01-07 "ý bạn là"
+    if (rows.length) return attachDefs(db, rows);
+    return attachDefs(db, await db.getAllAsync<SuggestRow>(SUGGEST_CONTAINS, q)); // 01-07 "ý bạn là"
 }
 
 /** 02-06: inflection table rows for one entry, ordered for display. */
