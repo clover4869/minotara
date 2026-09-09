@@ -75,6 +75,23 @@ const MIN_TRUSTWORTHY = 5;
 const MIN_TITLE_MATCH_RATIO = 0.25;
 
 /**
+ * Kiểu chặn trang cụt không phải trạng thái bền — nó chập chờn theo TỪNG
+ * request độc lập, không theo từ khoá. Đo thật: gọi CÙNG một truy vấn 8 lần
+ * liên tiếp, cách nhau 300ms — số kết quả ra 1, 30, 12, 59, 1, 35, 12, 35.
+ * Đã thử thêm header giả trình duyệt (Referer, sec-fetch-*, sec-ch-ua) và
+ * cookie phiên Bing thật — không đổi tỉ lệ, nên đây không phải chỗ header
+ * thiếu mà sửa được. Với ~50% khả năng một request đơn lẻ bị chặn, 2 lần thử
+ * độc lập (bản trước) vẫn còn ~25% khả năng cả hai đều trượt; 3 lần hạ xuống
+ * ~12%. Có nghỉ ngắn kèm jitter giữa các lần thử — không phải để "chờ Bing
+ * hồi", vì dữ liệu trên cho thấy 300ms là đủ để ra kết quả tốt ở lần kế tiếp;
+ * jitter chỉ để nhiều thiết bị đang thử lại cùng lúc không dội trùng nhịp vào
+ * đúng cùng một cửa sổ bị chặn.
+ */
+const RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 300;
+const RETRY_DELAY_JITTER_MS = 400;
+
+/**
  * Từ nối phải loại khỏi phép so khớp. Truy vấn giờ mang cả câu định nghĩa nên
  * chứa "the/and/one/with/that…" — để nguyên thì "the" khớp gần như mọi tiêu đề
  * và guard mất tác dụng đúng lúc cần nhất.
@@ -281,7 +298,7 @@ async function doSearch(
     const url = `${SEARCH_URL}?q=${encodeURIComponent(query)}&async=1`
         + `&first=${(page - 1) * count + 1}&count=${count}&mkt=en-US&setlang=en`;
 
-    for (let attempt = 0; attempt < 2; attempt++) { // timeout mỗi lần, thử lại 1 lần
+    for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
         try {
             const res = await fetchWithTimeout(fetchImpl, url, {
                 headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'en-US,en;q=0.9' },
@@ -296,8 +313,8 @@ async function doSearch(
             await cacheImages(userDb, query, page, JSON.stringify(results));
             return { results, fromCache: false, failed: false };
         } catch {
-            if (attempt === 0) continue;
-            return { results: [], fromCache: false, failed: true };
+            if (attempt === RETRY_ATTEMPTS - 1) return { results: [], fromCache: false, failed: true };
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS + Math.random() * RETRY_DELAY_JITTER_MS));
         }
     }
     return { results: [], fromCache: false, failed: true };

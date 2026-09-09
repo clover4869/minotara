@@ -494,7 +494,7 @@ describe('image-search (Bing)', () => {
         const r = await searchImages(user, 'dog', 1, fakeFetch);
         expect(r.failed).toBe(true);
         expect(r.results).toEqual([]);
-        expect(calls).toBe(2); // đã thử lại 1 lần
+        expect(calls).toBe(3); // đã thử lại 2 lần
 
         // lần sau vẫn đi lấy mới chứ không dính cache rác
         const again = await searchImages(user, 'dog', 1, (async () => ok(page(9, 'dog'))) as any);
