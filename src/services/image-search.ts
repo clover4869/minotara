@@ -193,8 +193,14 @@ async function doSearch(
     }
 
     const count = 35;
+    // mkt/setlang ghim kết quả về thị trường Anh-Mỹ. Không có thì Bing bản địa
+    // hoá theo IP: từ Việt Nam, "middle" trả rdsic.edu.vn ("The Middle: Giải
+    // Thích, Cách Sử Dụng"), blog tiếng Hung, ảnh người vùng Nam Á — app từ
+    // điển Anh-Anh mà minh hoạ bằng nội dung bản địa thì lạc đề. Đây cũng
+    // đúng là lý do DuckDuckGo trông "đỡ hơn": nó chuẩn hoá về tiếng Anh, dù
+    // ảnh vốn lấy từ cùng chỉ mục Bing.
     const url = `${SEARCH_URL}?q=${encodeURIComponent(query)}&async=1`
-        + `&first=${(page - 1) * count + 1}&count=${count}`;
+        + `&first=${(page - 1) * count + 1}&count=${count}&mkt=en-US&setlang=en`;
 
     for (let attempt = 0; attempt < 2; attempt++) { // timeout mỗi lần, thử lại 1 lần
         try {
