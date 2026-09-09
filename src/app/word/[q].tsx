@@ -23,7 +23,7 @@ import { addHistory, getSaved, saveWord, unsaveWord, updateUserMeaning, type Sav
 import { useApp, FONT_MULT } from '@/stores/app';
 import { Speaker, Chip, CefrBadge, IconButton, Icons, UiIcon } from '@/components/dict-ui';
 import { Image as ExpoImage } from 'expo-image';
-import { searchImages } from '@/services/image-search';
+import { searchImages, imageQueryFor } from '@/services/image-search';
 import { WordImages, MAX_SHOWN } from '@/components/word-images';
 import { TappableText } from '@/components/tappable-text';
 import { SearchOverlay } from '@/components/search-overlay';
@@ -149,6 +149,14 @@ export default function WordDetail() {
         if (!result || result.kind === 'miss') return;
         const q = result.formOf[0]?.lemma ?? result.entries[0]?.headword ?? result.query;
         if (!q) return;
+        // Phải DÙNG ĐÚNG truy vấn của tab Ảnh: cache key là truy vấn, lệch một
+        // chữ là prefetch xong tab vẫn miss cache rồi tải lại lần nữa.
+        const defn = (() => {
+            try {
+                const d0 = result.entries[0];
+                return d0 ? parseEntryData(d0.data).senses.find((x) => x.definition)?.definition ?? null : null;
+            } catch { return null; }
+        })();
         let alive = true;
         const timer = setTimeout(async () => {
             try {
@@ -157,7 +165,7 @@ export default function WordDetail() {
                 if (!alive || !net.isConnected) return;
                 const wifi = net.type === Network.NetworkStateType.WIFI
                     || net.type === Network.NetworkStateType.ETHERNET;
-                const r = await searchImages(await openUser(), q);
+                const r = await searchImages(await openUser(), imageQueryFor(q, defn));
                 if (!alive || r.failed || !wifi) return;
                 ExpoImage.prefetch(r.results.slice(0, MAX_SHOWN).map((x) => x.thumbnail));
             } catch { /* prefetch là cơ hội, không phải nghĩa vụ — hỏng thì tab Ảnh tự lo như cũ */ }
@@ -413,7 +421,7 @@ export default function WordDetail() {
         // Padding phải ở đây: trước kia <Accordion> cấp lề cho lưới ảnh, bỏ accordion
         // đi thì lưới tràn sát mép trong khi mọi thứ khác vẫn thụt vào.
         <View style={s.section}>
-            <WordImages word={imageQuery} />
+            <WordImages word={imageQuery} definition={senses[0]?.definition ?? null} />
         </View>
     );
 

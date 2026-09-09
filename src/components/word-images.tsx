@@ -19,7 +19,7 @@ import { Image } from 'expo-image';
 import * as Network from 'expo-network';
 
 import { openUser } from '@/db/open';
-import { searchImages, type ImageResult } from '@/services/image-search';
+import { searchImages, imageQueryFor, type ImageResult } from '@/services/image-search';
 import { UiIcon, Icons } from '@/components/dict-ui';
 import { usePalette } from '@/theme/use-palette';
 import { space, radius } from '@/theme/tokens';
@@ -48,7 +48,12 @@ async function whyFailed(): Promise<'offline' | 'source'> {
     }
 }
 
-export function WordImages({ word }: { word: string }) {
+export function WordImages({ word, definition }: {
+    word: string;
+    /** Nghĩa đầu của từ — ghép vào truy vấn để Bing hiểu đúng nghĩa cần minh hoạ
+     *  (xem imageQueryFor trong services/image-search.ts). */
+    definition?: string | null;
+}) {
     const t = usePalette();
     const s = useMemo(() => makeStyles(t), [t]);
     const [results, setResults] = useState<ImageResult[] | null>(null);
@@ -64,7 +69,7 @@ export function WordImages({ word }: { word: string }) {
         setFailed(null);
         (async () => {
             try {
-                const r = await searchImages(await openUser(), q);
+                const r = await searchImages(await openUser(), imageQueryFor(q, definition));
                 if (!alive) return;
                 setResults(r.results);
                 // Chỉ hỏi trạng thái mạng khi đã fail — hỏi trước là thêm một
@@ -77,7 +82,7 @@ export function WordImages({ word }: { word: string }) {
             }
         })();
         return () => { alive = false; };
-    }, [word, tick]);
+    }, [word, definition, tick]);
 
     if (results === null) {
         return <ActivityIndicator size="small" color={t.accent.bg} style={{ marginTop: space.sm }} />;

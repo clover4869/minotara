@@ -75,19 +75,66 @@ const MIN_TRUSTWORTHY = 5;
 const MIN_TITLE_MATCH_RATIO = 0.25;
 
 /**
- * Có bao nhiêu phần kết quả nhắc tới từ khoá trong tiêu đề. So khớp theo gốc
- * từ (bỏ 's'/'es' cuối) nên "chairs" vẫn tính cho truy vấn "chair".
+ * Từ nối phải loại khỏi phép so khớp. Truy vấn giờ mang cả câu định nghĩa nên
+ * chứa "the/and/one/with/that…" — để nguyên thì "the" khớp gần như mọi tiêu đề
+ * và guard mất tác dụng đúng lúc cần nhất.
+ */
+const STOP = new Set([
+    'the', 'and', 'for', 'with', 'that', 'this', 'from', 'are', 'was', 'has', 'have',
+    'one', 'two', 'its', 'his', 'her', 'you', 'your', 'they', 'them', 'not', 'but',
+    'all', 'any', 'can', 'out', 'off', 'over', 'into', 'used', 'use', 'such', 'other',
+    'someone', 'something', 'somebody', 'etc', 'who', 'which', 'when', 'where', 'what',
+]);
+
+/**
+ * Có bao nhiêu phần kết quả nhắc tới từ trong truy vấn ở tiêu đề. So khớp theo
+ * gốc từ (bỏ 's'/'es' cuối) nên "chairs" vẫn tính cho "chair".
+ *
+ * Dùng `.some()` chứ không đòi khớp từ chính: truy vấn kèm định nghĩa có thể
+ * dẫn tới kết quả đúng nghĩa mà KHÔNG chứa từ chính — "middle + the part … at
+ * an equal distance" ra sơ đồ "midpoint and distance", không có chữ "middle"
+ * nào. Đòi khớp từ chính là loại oan đúng những ca định nghĩa làm tốt việc.
  */
 export function titleMatchRatio(results: ImageResult[], query: string): number {
     if (!results.length) return 0;
     const stem = (w: string) => w.replace(/(es|s)$/i, '');
-    const needles = query.toLowerCase().split(/\s+/).filter((w) => w.length >= 3).map(stem);
-    if (!needles.length) return 1; // truy vấn toàn từ quá ngắn — không có gì để so, đừng loại
+    const needles = query.toLowerCase().split(/[^a-z0-9'-]+/)
+        .filter((w) => w.length >= 3 && !STOP.has(w))
+        .map(stem);
+    if (!needles.length) return 1; // không có gì để so — đừng loại
     const hit = results.filter((r) => {
         const t = r.title.toLowerCase();
         return needles.some((n) => t.includes(n));
     }).length;
     return hit / results.length;
+}
+
+/**
+ * Truy vấn ảnh = từ + CẢ CÂU định nghĩa. Đo trên Bing (kênh trình duyệt, vì
+ * IP máy dev đang bị chặn endpoint async):
+ *
+ *   apple   trần → logo Apple, MacBook Air, iPhone event
+ *   apple   +def → "A Shiny, Red Apple with Smooth Skin", "Round Ripe Apple"
+ *   curling trần → wallpaper, "Mopping Olympic Sport"
+ *   curling +def → "Athletes Sliding The Stones In Curling", "Players Slide
+ *                   Stones Towards Target"
+ *   chair   +def → ghế gỗ bốn chân (trần cũng tốt, không bị phá)
+ *   middle  +def → sơ đồ midpoint/distance (đúng nghĩa, thay vì sitcom)
+ *
+ * Vì sao câu đầy đủ ăn mà CỤM TỪ KHOÁ RỜI thì không: "apple round fruit shiny"
+ * vẫn ra Apple Inc, "red apple fruit on tree" trôi sang bảng màu đỏ. Bing so
+ * khớp ngữ nghĩa trên câu tự nhiên, và ảnh stock có alt-text mô tả cũng là
+ * câu — nên câu khớp câu. Chuỗi từ khoá rời chỉ làm loãng.
+ *
+ * Cắt ở dấu `;` vì Oxford dùng nó để nối nghĩa phụ ("…all its edges or sides;
+ * a point or a period in the middle of something") — phần sau làm loãng truy
+ * vấn. Cắt cứng ở 140 ký tự cho vài định nghĩa dài bất thường.
+ */
+export function imageQueryFor(word: string, definition?: string | null): string {
+    const w = word.trim();
+    if (!definition) return w;
+    const first = definition.split(';')[0].replace(/\s+/g, ' ').trim().slice(0, 140);
+    return first ? `${w} ${first}` : w;
 }
 
 export interface ImageResult {
