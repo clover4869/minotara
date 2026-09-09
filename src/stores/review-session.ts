@@ -124,12 +124,16 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
         await showCurrent(q, get, set);
     },
 
+    /**
+     * Lật qua lại được: chạm lần nữa là về mặt trước. Trước đây chỉ lật một
+     * chiều, nên lỡ chạm sớm là mất cơ hội tự nhớ mà không có đường quay lại.
+     * Không đụng tới audio: showCurrent() đã bật vòng lặp từ lúc thẻ hiện ra,
+     * gọi lại ở đây chỉ làm âm thanh nhảy về đầu và reset tốc độ đang tăng dần.
+     */
     flip() {
         const { flipped, card } = get();
-        if (flipped || !card) return;
-        set({ flipped: true });
-        // Không phát ở đây nữa: showCurrent() đã bật vòng lặp từ lúc thẻ hiện
-        // ra rồi. Gọi lại chỉ làm audio nhảy về đầu và reset nhịp 3 giây.
+        if (!card) return;
+        set({ flipped: !flipped });
     },
 
     async answer(correct) {

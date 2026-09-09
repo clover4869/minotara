@@ -59,7 +59,7 @@ export default function ReviewSessionScreen() {
     }, [clearCache]);
 
     function flip() {
-        if (flipped || !card) return;
+        if (!card) return;
         Animated.sequence([
             Animated.timing(flipAnim, { toValue: 0.96, duration: 80, useNativeDriver: true }),
             Animated.timing(flipAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
@@ -203,6 +203,7 @@ export default function ReviewSessionScreen() {
                             {card.dictDefinition ? <Text style={s.cardDictDef}>{card.dictDefinition}</Text> : null}
                             {card.example ? <Text style={s.cardExample}>{card.example}</Text> : null}
                             {card.forms ? <Text style={s.cardForms}>{card.forms}</Text> : null}
+                            <Text style={s.tapHint}>Chạm để lật lại</Text>
                         </>
                     )}
                 </Animated.View>
