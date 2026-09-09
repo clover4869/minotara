@@ -429,12 +429,16 @@ describe('vi-meaning', () => {
 
 describe('image-search (Bing)', () => {
     /** Đúng dạng Bing trả về: JSON nằm trong thuộc tính m=, dấu nháy escape thành &quot;. */
-    const item = (i: number) =>
+    /** Tiêu đề PHẢI chứa từ khoá như Bing thật ("16 Best Office Chairs…"):
+     *  searchImages() có guard titleMatchRatio loại response lạc đề, nên
+     *  fixture tiêu đề vô nghĩa sẽ bị guard bắt — và đúng ra là phải bị bắt. */
+    const item = (i: number, word = 'cat') =>
         ` m="{&quot;purl&quot;:&quot;https://src${i}.example/page&quot;,`
         + `&quot;murl&quot;:&quot;https://img${i}.example/full.jpg&quot;,`
         + `&quot;turl&quot;:&quot;https://th${i}.example/t.jpg&quot;,`
-        + `&quot;t&quot;:&quot;Ảnh ${i} &amp; bạn&quot;}"`;
-    const page = (n: number) => '<html>' + Array.from({ length: n }, (_, i) => `<a${item(i)}></a>`).join('') + '</html>';
+        + `&quot;t&quot;:&quot;${word} ảnh ${i} &amp; bạn&quot;}"`;
+    const page = (n: number, word = 'cat') =>
+        '<html>' + Array.from({ length: n }, (_, i) => `<a${item(i, word)}></a>`).join('') + '</html>';
     const ok = (body: string) => ({ ok: true, text: async () => body }) as any;
 
     it('bóc được murl/turl/t, suy ra host nguồn, rồi phục vụ từ cache lần sau', async () => {
@@ -478,7 +482,7 @@ describe('image-search (Bing)', () => {
     });
 
     it('giải mã &amp; đúng thứ tự, không ra "&quot;" lạc trong tiêu đề', () => {
-        expect(parseBingImages(page(1))[0].title).toBe('Ảnh 0 & bạn');
+        expect(parseBingImages(page(1))[0].title).toBe('cat ảnh 0 & bạn');
     });
 
     it('trang cụt do bị chặn tốc độ bị coi là lỗi và KHÔNG được cache', async () => {
@@ -486,14 +490,14 @@ describe('image-search (Bing)', () => {
         let calls = 0;
         // Bing trả HTTP 200 kèm đúng 1 kết quả khi chặn — nhận 1 ảnh lạc còn
         // tệ hơn báo lỗi, và cache nó lại thì kẹt 30 ngày.
-        const fakeFetch = (async () => { calls++; return ok(page(1)); }) as any;
+        const fakeFetch = (async () => { calls++; return ok(page(1, 'dog')); }) as any;
         const r = await searchImages(user, 'dog', 1, fakeFetch);
         expect(r.failed).toBe(true);
         expect(r.results).toEqual([]);
         expect(calls).toBe(2); // đã thử lại 1 lần
 
         // lần sau vẫn đi lấy mới chứ không dính cache rác
-        const again = await searchImages(user, 'dog', 1, (async () => ok(page(9))) as any);
+        const again = await searchImages(user, 'dog', 1, (async () => ok(page(9, 'dog'))) as any);
         expect(again.failed).toBe(false);
         expect(again.results).toHaveLength(9);
     });

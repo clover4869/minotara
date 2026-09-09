@@ -58,6 +58,38 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
  */
 const MIN_TRUSTWORTHY = 5;
 
+/**
+ * Bing còn một kiểu chặn thứ hai, nguy hiểm hơn kiểu trang cụt: nó trả ĐỦ
+ * 30-35 kết quả, HTTP 200, nhưng nội dung hoàn toàn không liên quan tới truy
+ * vấn — đo thật từ IP đã bị chặn: "chair" trả ảnh con trút và Gardens by the
+ * Bay, "chair furniture" trả slide thuyết trình tiếng Nhật. Kiểu này LỌT QUA
+ * MIN_TRUSTWORTHY, được cache 30 ngày, và người học thấy con trút khi tra
+ * "chair" — sai mà không ai biết là sai.
+ *
+ * Cách nhận: kết quả thật gần như luôn có từ khoá trong tiêu đề ("16 Best
+ * Amazon Office Chairs", "The 21 Happiest Otters Ever", "Apple | Fruit,
+ * Types, Nutrition"), còn rác thì không có lấy một cái. Ngưỡng 25% đặt thấp
+ * hẳn so với thực tế (từ thật thường trên 70%) để không bao giờ loại oan ảnh
+ * đúng chỉ vì tiêu đề không nhắc tên.
+ */
+const MIN_TITLE_MATCH_RATIO = 0.25;
+
+/**
+ * Có bao nhiêu phần kết quả nhắc tới từ khoá trong tiêu đề. So khớp theo gốc
+ * từ (bỏ 's'/'es' cuối) nên "chairs" vẫn tính cho truy vấn "chair".
+ */
+export function titleMatchRatio(results: ImageResult[], query: string): number {
+    if (!results.length) return 0;
+    const stem = (w: string) => w.replace(/(es|s)$/i, '');
+    const needles = query.toLowerCase().split(/\s+/).filter((w) => w.length >= 3).map(stem);
+    if (!needles.length) return 1; // truy vấn toàn từ quá ngắn — không có gì để so, đừng loại
+    const hit = results.filter((r) => {
+        const t = r.title.toLowerCase();
+        return needles.some((n) => t.includes(n));
+    }).length;
+    return hit / results.length;
+}
+
 export interface ImageResult {
     image: string;
     thumbnail: string;
@@ -210,6 +242,10 @@ async function doSearch(
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const results = parseBingImages(await res.text());
             if (results.length < MIN_TRUSTWORTHY) throw new Error(`chỉ ${results.length} kết quả`);
+            const ratio = titleMatchRatio(results, query);
+            if (ratio < MIN_TITLE_MATCH_RATIO) {
+                throw new Error(`kết quả lạc đề (${Math.round(ratio * 100)}% tiêu đề khớp)`);
+            }
             await cacheImages(userDb, query, page, JSON.stringify(results));
             return { results, fromCache: false, failed: false };
         } catch {
