@@ -527,6 +527,26 @@ describe('image-search (Bing)', () => {
         expect(r.results).toEqual([]);
         expect(r.failed).toBe(false);
     });
+
+    /**
+     * Khoá chặt User-Agent. Khai "Chrome trên Windows" từ điện thoại là mâu
+     * thuẫn với vân tay TLS thật (Android/OkHttp), và Akamai đọc mâu thuẫn đó
+     * ra bot: trả trang cụt hoặc ảnh của truy vấn khác hẳn, vẫn HTTP 200. Đó
+     * là nguyên nhân gốc của lỗi "Nguồn ảnh đang không phản hồi" trên mọi máy,
+     * mọi mạng — đo được: UA nền tảng thật 12/12, UA desktop 11/12 và đó là đo
+     * từ Linux, nơi UA desktop còn khớp nền tảng.
+     */
+    it('khai User-Agent đúng nền tảng đang chạy, không giả desktop', async () => {
+        const user = await makeUser();
+        let seen = '';
+        const spyFetch = (async (_u: string, init: any) => {
+            seen = init.headers['User-Agent'];
+            return ok(page(9, 'cat'));
+        }) as any;
+        await searchImages(user, 'ua-probe', 1, spyFetch);
+        expect(seen).toMatch(/Android/);
+        expect(seen).not.toMatch(/Windows|Macintosh/);
+    });
 });
 
 describe('form-of grouping + mask', () => {

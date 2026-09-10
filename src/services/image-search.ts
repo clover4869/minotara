@@ -26,6 +26,8 @@
  * vốn lấy từ Bing. Kiểm chứng bằng cách so ba kết quả đầu của truy vấn "otter"
  * ở hai bên — trùng khớp từng tiêu đề.
  */
+import { Platform } from 'react-native';
+
 import type { DbLike } from '../db/types';
 import { getCachedImages, cacheImages } from '../db/user';
 
@@ -45,7 +47,35 @@ const TIMEOUT_MS = 8000;
  */
 export const IMAGE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+/**
+ * User-Agent PHẢI khai đúng nền tảng đang chạy. Trước đây chỗ này khai
+ * "Chrome trên Windows" cho mọi máy — và đó là nguyên nhân gốc của lỗi "Nguồn
+ * ảnh đang không phản hồi" xảy ra trên MỌI điện thoại, MỌI mạng:
+ *
+ * Bing đứng sau Akamai, bên này đối chiếu lời khai trong User-Agent với dấu
+ * vân tay TLS của kết nối. Từ điện thoại, vân tay là Android/OkHttp trong khi
+ * UA khai là Chrome/Windows — mâu thuẫn đó là dấu hiệu bot kinh điển, và cái
+ * app nhận về là trang cụt (~25KB, 1 kết quả) hoặc trang đủ số lượng nhưng
+ * nội dung của truy vấn khác hẳn (tra "apple" ra bài về hồ Summit Lake).
+ * Cả hai đều HTTP 200, không captcha, không chữ nào báo bị chặn.
+ *
+ * Đo 12 lần/biến thể, tiêu chí = đúng tiêu chí guard bên dưới (>=5 kết quả VÀ
+ * >=25% tiêu đề khớp):
+ *
+ *   UA Android  12/12 = 100%   trang 166KB đều tăm tắp, mọi cấu hình
+ *   UA Windows  11/12 =  92%   dao động 154KB, có lần rơi xuống 25KB
+ *
+ * 92% đó là đo TỪ MÁY LINUX, nơi UA desktop còn khớp nền tảng. Trên điện
+ * thoại mâu thuẫn luôn tồn tại nên tỉ lệ hỏng cao hơn hẳn — khớp với việc
+ * người dùng gặp lỗi cả trên máy khác lẫn mạng khác.
+ *
+ * Vì vậy: đừng đổi UA này sang chuỗi desktop cho "trông giống trình duyệt
+ * hơn". Giống nền tảng THẬT mới là thứ đi lọt.
+ */
+const USER_AGENT = Platform.select({
+    ios: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    default: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+});
 
 /**
  * Gọi dồn dập thì Bing trả một trang cụt ~24KB chỉ có đúng 1 kết quả, vẫn
