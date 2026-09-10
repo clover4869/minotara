@@ -21,6 +21,7 @@
     "expo-status-bar": "~56.0.4",
     "expo-symbols": "~56.0.7",
     "expo-system-ui": "~56.0.5",
+    "expo-updates": "~56.0.26",
     "expo-web-browser": "~56.0.6",
     "lucide-react-native": "^1.32.0",
     "react": "19.2.3",
@@ -52,7 +53,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test": "vitest run",
-    "build-db": "node scripts/build-app-db.js"
+    "build-db": "node scripts/build-app-db.js",
+    "build:apk": "eas build --platform android --profile preview --non-interactive"
   },
   "private": true
 }
