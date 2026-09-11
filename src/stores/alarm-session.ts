@@ -18,8 +18,8 @@ import { openDictionary, openUser } from '@/db/open';
 import {
     loadSrsStates, persistGrades, logAlarmEvent, type AlarmConfig,
 } from '@/db/user';
-import { buildSession, buildAheadSession, grade, shuffle, type SrsState } from '@/services/srs';
-import { dailyWords } from '@/services/lookup';
+import { grade, type SrsState } from '@/services/srs';
+import { buildStudyPool } from '@/services/study-pool';
 import { buildQuizQuestion, type QuizQuestion } from '@/services/quiz';
 import { searchImages, imageQueryFor } from '@/services/image-search';
 import { playRepeating, stopRepeat } from '@/services/audio';
@@ -71,32 +71,25 @@ let cache = new Map<number, CardContent>();
 let currentItem: AlarmItem | null = null;
 
 /**
- * Dựng nguồn câu hỏi, theo thứ tự ưu tiên — và luôn phải ra được thứ gì đó:
- *   1. thẻ đến hạn hôm nay
- *   2. thẻ sắp đến hạn (ôn sớm còn hơn không có gì)
- *   3. mọi từ đã lưu
- *   4. từ B1/B2 lấy ngẫu nhiên từ từ điển — cho người chưa lưu từ nào
+ * Nguồn câu hỏi — dùng CHUNG bộ dựng với phiên ôn tập (services/study-pool.ts):
+ * sổ từ → lịch sử tra cứu → từ hôm nay → ngẫu nhiên.
  *
- * Bước 4 là lý do màn này không bao giờ kẹt. Nó cũng khớp với chủ ý của tính
- * năng: mục đích là dậy đúng giờ và động não, không phải dọn sạch hàng đợi
- * ôn tập — hết bài mà im lặng thì hôm đó mất luôn thói quen.
+ * Trước đây file này có bản riêng, và nó lệch thứ tự: nhảy thẳng từ sổ từ sang
+ * từ B1/B2 ngẫu nhiên, bỏ qua lịch sử và từ hôm nay. Hai màn cùng hỏi một kiểu
+ * bài thì phải lấy từ cùng một nguồn, không thì người dùng gặp hai luật khác
+ * nhau mà không có cách nào biết vì sao.
+ *
+ * Đây là lý do màn báo thức không bao giờ kẹt: tầng cuối luôn ra được từ, nên
+ * chuông luôn có bài để đòi.
  */
 async function buildPool(target: number): Promise<AlarmItem[]> {
     const user = await openUser();
-    const all = await loadSrsStates(user);
-    const now = new Date();
-
-    const due = buildSession(all, now);
-    if (due.length) return shuffle(due).map((s) => ({ entry_id: s.entry_id, srs: s }));
-
-    const ahead = buildAheadSession(all, now, Math.max(target * 2, 10));
-    if (ahead.length) return shuffle(ahead).map((s) => ({ entry_id: s.entry_id, srs: s }));
-
-    if (all.length) return shuffle(all).map((s) => ({ entry_id: s.entry_id, srs: s }));
-
     const dict = await openDictionary();
-    const fresh = await dailyWords(dict, Math.max(target * 2, 10));
-    return fresh.map((w) => ({ entry_id: w.id, srs: null }));
+    const all = await loadSrsStates(user);
+    // Lấy dư gấp ba số câu cần: trả lời sai thì từ đó bị hỏi lại, nên hàng đợi
+    // tiêu thụ nhanh hơn số câu đúng đạt được.
+    const pool = await buildStudyPool(dict, user, all, { limit: Math.max(target * 3, 10) });
+    return pool.items;
 }
 
 /** Lấy mục kế tiếp, nạp thêm nếu hàng đợi cạn trước khi đạt đủ số câu đúng. */

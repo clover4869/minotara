@@ -9,9 +9,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 
-import { openUser } from '@/db/open';
+import { openDictionary, openUser } from '@/db/open';
 import { loadSrsStates } from '@/db/user';
-import { buildSession, buildAheadSession, dueBoxCounts, type SrsState } from '@/services/srs';
+import { buildAheadSession, dueBoxCounts, type SrsState } from '@/services/srs';
+import { buildStudyPool } from '@/services/study-pool';
 import { useReviewSession, type ReviewMode } from '@/stores/review-session';
 import { usePalette } from '@/theme/use-palette';
 import { useTabBarSpace } from '@/components/glass-tab-bar';
@@ -54,12 +55,20 @@ export default function ReviewStartScreen() {
     // tab — trước đây chúng chỉ nằm trong bộ nhớ nên mở lại app là về mặc định.
     useEffect(() => { loadPrefs().catch(() => {}); }, [loadPrefs]);
 
+    /*
+      Một nút duy nhất. Trước đây có hai: "Bắt đầu" (tắt khi hết thẻ đến hạn)
+      và "Ôn trước hạn" hiện thay chỗ — tức app nói "hôm nay xong rồi" với
+      người đang muốn học thêm, rồi lại mời học bằng một nút tên khác.
+
+      Giờ nguồn từ tự xuống tầng: sổ từ → lịch sử tra cứu → từ hôm nay → ngẫu
+      nhiên (services/study-pool.ts), nên luôn có bài. Trần 40 từ mỗi lượt —
+      ba tầng sau gần như vô hạn, không có trần thì lượt học không bao giờ hết.
+    */
     async function start() {
-        await begin(buildSession(statesRef.current, new Date()));
-        router.push('/review-session');
-    }
-    async function startAhead() {
-        await begin(buildAheadSession(statesRef.current, new Date()));
+        const pool = await buildStudyPool(
+            await openDictionary(), await openUser(), statesRef.current);
+        if (!pool.items.length) return;
+        await begin(pool.items);
         router.push('/review-session');
     }
 
@@ -101,20 +110,18 @@ export default function ReviewStartScreen() {
             {/* Chỉ giải thích chế độ ĐANG chọn: ba dòng cùng lúc là ba dòng để
                 đọc lướt rồi bỏ qua, một dòng đúng lúc thì người ta đọc. */}
             <Text style={s.caption}>{kind === 'quiz' ? QUIZ_HINT : MODE_HINT[mode]}</Text>
-            <Pressable
-                style={[s.primaryBtn, !dueCount && { opacity: 0.4 }]}
-                disabled={!dueCount}
-                onPress={start}
-            >
+            <Pressable style={s.primaryBtn} onPress={start}>
                 <Text style={s.primaryBtnText}>Bắt đầu</Text>
             </Pressable>
-            {!dueCount && aheadCount > 0 && (
-                <Pressable style={s.ghostBtn} onPress={startAhead}>
-                    <Text style={s.ghostBtnText}>Ôn trước hạn · {aheadCount} thẻ</Text>
-                </Pressable>
-            )}
-            {!dueCount && !aheadCount && (
-                <Text style={s.hintText}>Lưu từ ở tab Tra cứu để có thẻ ôn</Text>
+            {/* Nói thật lượt này gồm gì. Hết thẻ đến hạn mà nút vẫn bấm được
+                thì phải cho biết bài lấy từ đâu, không thì người dùng tưởng
+                thẻ đến hạn tính sai. */}
+            {!dueCount && (
+                <Text style={s.hintText}>
+                    {aheadCount > 0
+                        ? `Hết thẻ đến hạn — lượt này ôn trước hạn và học thêm từ đã tra`
+                        : 'Chưa có thẻ nào — lượt này học từ đã tra, từ hôm nay và từ mới'}
+                </Text>
             )}
 
             {/* Ba điều người dùng không đoán ra được từ giao diện: vì sao số thẻ

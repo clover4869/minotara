@@ -9,6 +9,7 @@ import { create } from 'zustand';
 import { openDictionary, openUser } from '@/db/open';
 import { loadSrsStates, persistGrades, nextDueAt, getSetting, setSetting, type NextDue, type SavedWord } from '@/db/user';
 import { SessionQueue, shuffle, type SrsState } from '@/services/srs';
+import { syntheticState, type StudyItem } from '@/services/study-pool';
 import { formsOfEntry } from '@/services/lookup';
 import { searchImages, imageQueryFor } from '@/services/image-search';
 import { buildQuizQuestion, type QuizQuestion } from '@/services/quiz';
@@ -97,7 +98,9 @@ interface ReviewSessionState {
     /** key đáp án đã chọn — có giá trị nghĩa là đã lộ đáp án, chờ sang câu kế. */
     picked: string | null;
 
-    begin(cards: SrsState[], skipGrade?: boolean): Promise<void>;
+    /** Nhận StudyItem để biết từ nào NẰM TRONG SỔ (chấm được) và từ nào là
+     *  học thêm — xem services/study-pool.ts. */
+    begin(items: StudyItem[], skipGrade?: boolean): Promise<void>;
     flip(): void;
     /** Chọn một đáp án. CHỈ ghi lựa chọn để lộ đáp án — không chấm, không sang
      *  thẻ kế. Màn hình chờ cho người dùng đọc xong rồi tự gọi answer(). */
@@ -176,12 +179,17 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
     question: null,
     picked: null,
 
-    async begin(cards, skipGrade = false) {
-        if (!cards.length) return;
+    async begin(items, skipGrade = false) {
+        if (!items.length) return;
         get().cache.clear();
+        const now = new Date();
+        // Chỉ từ trong sổ mới được ghi điểm. Đặt ở đây vì đây là chỗ duy nhất
+        // biết cả danh sách trước khi nó bị SessionQueue xáo và tiêu thụ.
+        gradable = new Set(items.filter((i) => i.srs).map((i) => i.entry_id));
+        const cards = items.map((i) => i.srs ?? syntheticState(i.entry_id, now));
         const q = skipGrade
-            ? new SessionQueue(shuffle(cards), new Date(), Math.random, { reinforcement: true })
-            : new SessionQueue(shuffle(cards), new Date());
+            ? new SessionQueue(shuffle(cards), now, Math.random, { reinforcement: true })
+            : new SessionQueue(shuffle(cards), now);
         set({
             queue: q, phase: 'card', noGrade: skipGrade, flipped: false, card: null,
             answered: 0, question: null, picked: null,
@@ -226,14 +234,19 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
 
     async exitSession() {
         const { queue, noGrade } = get();
-        if (queue && !noGrade) await persistGrades(await openUser(), queue.graded);
+        if (queue && !noGrade) await persistGradable(queue.graded);
         stopRepeat();
     },
 
     async retryMissed() {
         const { queue, allStates } = get();
         if (!queue) return;
-        const missed = allStates.filter((s) => queue.missed.has(s.entry_id));
+        // Chỉ lấy lại được thẻ TRONG SỔ: từ học thêm không có SrsState trong
+        // allStates nên không xuất hiện ở đây. Đúng ý — "ôn lại thẻ sai" là
+        // việc của thẻ thật, không phải của phần luyện thêm.
+        const missed = allStates
+            .filter((s) => queue.missed.has(s.entry_id))
+            .map((s) => ({ entry_id: s.entry_id, srs: s }));
         if (!missed.length) return;
         await get().begin(missed, true);
     },
@@ -243,6 +256,22 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
         sessionDefs = [];
     },
 }));
+
+/**
+ * entry_id được phép chấm điểm — tức những từ NẰM TRONG SỔ. Lượt học có thể
+ * kèm từ ngoài sổ (lịch sử / từ hôm nay / ngẫu nhiên, xem services/study-pool.ts)
+ * và chúng không có hàng `srs_state` để cập nhật.
+ *
+ * Lọc tường minh chứ không dựa vào việc persistGrades tự no-op: nó
+ * `UPDATE ... WHERE entry_id=?` nên sửa 0 dòng — im lặng do tình cờ, và lần
+ * ai đó đổi nó thành INSERT OR REPLACE là lần app ghi hàng srs_state mồ côi.
+ */
+let gradable = new Set<number>();
+
+async function persistGradable(graded: SrsState[]): Promise<void> {
+    const mine = graded.filter((g) => gradable.has(g.entry_id));
+    if (mine.length) await persistGrades(await openUser(), mine);
+}
 
 /**
  * Nghĩa của mọi thẻ trong phiên, dùng làm mồi nhử trắc nghiệm. Sống ngoài
@@ -278,7 +307,7 @@ async function showCurrent(
     const cur = q.current;
     if (!cur) {
         const { noGrade } = get();
-        if (!noGrade) await persistGrades(await openUser(), q.graded);
+        if (!noGrade) await persistGradable(q.graded);
         const nextDue = await nextDueAt(await openUser());
         set({ nextDue, phase: 'done', card: null, question: null });
         return;
