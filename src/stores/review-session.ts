@@ -13,8 +13,9 @@ import { formsOfEntry } from '@/services/lookup';
 import { searchImages, imageQueryFor } from '@/services/image-search';
 import { buildQuizQuestion, type QuizQuestion } from '@/services/quiz';
 
-/** Số ảnh hiện trong câu trắc nghiệm — khớp với báo thức. */
-const QUIZ_IMAGES = 2;
+/** Số ảnh đưa vào carousel trắc nghiệm — khớp CACHE_KEEP trong
+ *  image-search.ts, tức là lấy hết những gì đã lưu cho nghĩa đó. */
+const QUIZ_IMAGES = 12;
 import { parseEntryData } from '@/db/types';
 import { playRepeating, stopRepeat, playUrl } from '@/services/audio';
 import { useApp } from '@/stores/app';

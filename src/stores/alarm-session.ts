@@ -34,8 +34,8 @@ interface AlarmItem {
     srs: SrsState | null;
 }
 
-/** Bao nhiêu ảnh hiện trong câu trắc nghiệm. */
-const QUIZ_IMAGES = 2;
+/** Bao nhiêu ảnh đưa vào carousel — lấy hết những gì đã lưu cho nghĩa đó. */
+const QUIZ_IMAGES = 12;
 
 interface AlarmSessionState {
     kind: AlarmConfig['kind'];

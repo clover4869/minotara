@@ -7,7 +7,7 @@ import { matchImport } from '../src/services/import-matcher';
 import { grade, buildSession, buildAheadSession, dueBoxCounts, SessionQueue, boxFromStability, previewIntervals, maskHeadword, type SrsState } from '../src/services/srs';
 import { migrateUserDb, saveWord, savedStats, getSetting, setSetting, nextDueAt, getCachedImages, cacheImages } from '../src/db/user';
 import { getViMeanings, meaningsForPos, meaningsOtherPos, normalizeViPos } from '../src/services/vi-meaning';
-import { searchImages, parseBingImages, IMAGE_CACHE_TTL_MS, setImageRequestGap } from '../src/services/image-search';
+import { searchImages, parseBingImages, setImageRequestGap, titleMatchRatio } from '../src/services/image-search';
 import { splitWords, normalizeWord } from '../src/services/tokenize';
 
 /** better-sqlite3 wrapped to look like expo-sqlite's async API. */
@@ -450,7 +450,7 @@ describe('image-search (Bing)', () => {
         let calls = 0;
         const fakeFetch = (async () => { calls++; return ok(page(9)); }) as any;
 
-        const a = await searchImages(user, 'Cat', 1, fakeFetch);
+        const a = await searchImages(user, 'Cat', { fetchImpl: fakeFetch });
         expect(a.fromCache).toBe(false);
         expect(a.results).toHaveLength(9);
         expect(a.results[0].image).toBe('https://img0.example/full.jpg');
@@ -460,7 +460,7 @@ describe('image-search (Bing)', () => {
         expect(calls).toBe(1);
 
         // 'Cat' và 'cat' cùng một khoá cache
-        const b = await searchImages(user, 'cat', 1, (() => { throw new Error('no network'); }) as any);
+        const b = await searchImages(user, 'cat', { fetchImpl: (() => { throw new Error('no network'); }) as any });
         expect(b.fromCache).toBe(true);
         expect(b.results).toHaveLength(9);
     });
@@ -474,14 +474,14 @@ describe('image-search (Bing)', () => {
             return ok(page(9));
         }) as any;
         const [a, b] = await Promise.all([
-            searchImages(user, 'cat', 1, slowFetch),
-            searchImages(user, 'cat', 1, slowFetch),
+            searchImages(user, 'cat', { fetchImpl: slowFetch }),
+            searchImages(user, 'cat', { fetchImpl: slowFetch }),
         ]);
         expect(calls).toBe(1);
         expect(a.results).toHaveLength(9);
         expect(b.results).toHaveLength(9);
         // xong rồi thì map inflight phải rỗng: lời gọi sau đi đường cache, không dính promise cũ
-        const c = await searchImages(user, 'cat', 1, (() => { throw new Error('không được gọi'); }) as any);
+        const c = await searchImages(user, 'cat', { fetchImpl: (() => { throw new Error('không được gọi'); }) as any });
         expect(c.fromCache).toBe(true);
     });
 
@@ -495,27 +495,27 @@ describe('image-search (Bing)', () => {
         // Bing trả HTTP 200 kèm đúng 1 kết quả khi chặn — nhận 1 ảnh lạc còn
         // tệ hơn báo lỗi, và cache nó lại thì kẹt 30 ngày.
         const fakeFetch = (async () => { calls++; return ok(page(1, 'dog')); }) as any;
-        const r = await searchImages(user, 'dog', 1, fakeFetch);
+        const r = await searchImages(user, 'dog', { fetchImpl: fakeFetch });
         expect(r.failed).toBe(true);
         expect(r.results).toEqual([]);
         expect(calls).toBe(3); // đã thử lại 2 lần
 
         // lần sau vẫn đi lấy mới chứ không dính cache rác
-        const again = await searchImages(user, 'dog', 1, (async () => ok(page(9, 'dog'))) as any);
+        const again = await searchImages(user, 'dog', { fetchImpl: (async () => ok(page(9, 'dog'))) as any });
         expect(again.failed).toBe(false);
         expect(again.results).toHaveLength(9);
     });
 
     it('hỏng mềm khi request throw', async () => {
         const user = await makeUser();
-        const r = await searchImages(user, 'bird', 1, (async () => { throw new Error('network down'); }) as any);
+        const r = await searchImages(user, 'bird', { fetchImpl: (async () => { throw new Error('network down'); }) as any });
         expect(r.failed).toBe(true);
         expect(r.results).toEqual([]);
     });
 
     it('hỏng mềm khi HTTP không ok', async () => {
         const user = await makeUser();
-        const r = await searchImages(user, 'fish', 1, (async () => ({ ok: false, status: 429 })) as any);
+        const r = await searchImages(user, 'fish', { fetchImpl: (async () => ({ ok: false, status: 429 })) as any });
         expect(r.failed).toBe(true);
     });
 
@@ -527,7 +527,7 @@ describe('image-search (Bing)', () => {
 
     it('truy vấn rỗng thì không gọi mạng', async () => {
         const user = await makeUser();
-        const r = await searchImages(user, '   ', 1, (() => { throw new Error('should not be called'); }) as any);
+        const r = await searchImages(user, '   ', { fetchImpl: (() => { throw new Error('should not be called'); }) as any });
         expect(r.results).toEqual([]);
         expect(r.failed).toBe(false);
     });
@@ -552,7 +552,7 @@ describe('image-search (Bing)', () => {
             const at: number[] = [];
             const spy = (async () => { at.push(Date.now()); return ok(page(9, 'cat')); }) as any;
             // query khác nhau để không bị inflight gộp thành một request
-            await Promise.all(['aa', 'bb', 'cc'].map((q) => searchImages(user, q, 1, spy)));
+            await Promise.all(['aa', 'bb', 'cc'].map((q) => searchImages(user, q, { fetchImpl: spy })));
             expect(at).toHaveLength(3);
             at.sort((x, y) => x - y);
             // cho hụt 15ms vì setTimeout không bao giờ đúng tới từng milli
@@ -569,12 +569,50 @@ describe('image-search (Bing)', () => {
         setImageRequestGap(5000); // giãn nhịp cực rộng — nếu cache phải chờ thì test này treo
         try {
             const t0 = Date.now();
-            const r = await searchImages(user, 'sancache', 1, (() => { throw new Error('không được gọi mạng'); }) as any);
+            const r = await searchImages(user, 'sancache', { fetchImpl: (() => { throw new Error('không được gọi mạng'); }) as any });
             expect(r.fromCache).toBe(true);
             expect(Date.now() - t0).toBeLessThan(1000);
         } finally {
             setImageRequestGap(0);
         }
+    });
+
+    it('lưu tối đa 12 ảnh mỗi truy vấn, không lưu cả 35', async () => {
+        const user = await makeUser();
+        const r = await searchImages(user, 'cat', { fetchImpl: (async () => ok(page(35, 'cat'))) as any });
+        expect(r.results).toHaveLength(12);
+        expect(JSON.parse((await getCachedImages(user, 'cat', 1))!)).toHaveLength(12);
+    });
+
+    /** Khi mọi link đã cache đều chết, cache không còn giá trị gì — phải có
+     *  đường đi lấy mới, nếu không ô ảnh vỡ sẽ vỡ vĩnh viễn. */
+    it('forceRefresh bỏ qua cache và ghi đè hàng cũ', async () => {
+        const user = await makeUser();
+        await cacheImages(user, 'cat', 1, JSON.stringify([{ image: 'cũ', thumbnail: 'cũ', title: 'cat', source: '', sourceUrl: '' }]));
+
+        const cachedRun = await searchImages(user, 'cat', { fetchImpl: (() => { throw new Error('không được gọi'); }) as any });
+        expect(cachedRun.fromCache).toBe(true);
+        expect(cachedRun.results[0].image).toBe('cũ');
+
+        const freshRun = await searchImages(user, 'cat', {
+            forceRefresh: true,
+            fetchImpl: (async () => ok(page(9, 'cat'))) as any,
+        });
+        expect(freshRun.fromCache).toBe(false);
+        expect(freshRun.results[0].image).toBe('https://img0.example/full.jpg');
+        // ghi đè: lần đọc cache sau đó phải ra hàng mới
+        const after = await searchImages(user, 'cat', { fetchImpl: (() => { throw new Error('không được gọi'); }) as any });
+        expect(after.results[0].image).toBe('https://img0.example/full.jpg');
+    });
+
+    /** Hàng cache là mảng rỗng thì vô dụng — đừng trả "thành công, 0 ảnh"
+     *  rồi để UI hiện khoảng trống vĩnh viễn. */
+    it('cache rỗng thì đi lấy mới thay vì trả về 0 ảnh', async () => {
+        const user = await makeUser();
+        await cacheImages(user, 'cat', 1, '[]');
+        const r = await searchImages(user, 'cat', { fetchImpl: (async () => ok(page(9, 'cat'))) as any });
+        expect(r.fromCache).toBe(false);
+        expect(r.results).toHaveLength(9);
     });
 
     it('khai User-Agent đúng nền tảng đang chạy, không giả desktop', async () => {
@@ -584,7 +622,7 @@ describe('image-search (Bing)', () => {
             seen = init.headers['User-Agent'];
             return ok(page(9, 'cat'));
         }) as any;
-        await searchImages(user, 'ua-probe', 1, spyFetch);
+        await searchImages(user, 'ua-probe', { fetchImpl: spyFetch });
         expect(seen).toMatch(/Android/);
         expect(seen).not.toMatch(/Windows|Macintosh/);
     });
@@ -680,31 +718,35 @@ describe('parseEntryData — ghép lại URL audio đã rút gọn', () => {
     });
 });
 
-describe('cache ảnh — hết hạn theo fetched_at', () => {
+describe('cache ảnh — KHÔNG hết hạn', () => {
     const row = JSON.stringify([{ image: 'a', thumbnail: 'b' }]);
 
-    it('hàng còn mới thì dùng lại', async () => {
+    it('hàng mới lưu thì dùng lại', async () => {
         const user = await makeUser();
         await cacheImages(user, 'otter', 1, row);
-        expect(await getCachedImages(user, 'otter', 1, 60_000)).toBe(row);
-    });
-
-    it('hàng quá tuổi thì coi như không có, để đi lấy mới', async () => {
-        const user = await makeUser();
-        await user.runAsync(
-            'INSERT INTO image_cache (query, page, json, fetched_at) VALUES (?,?,?,?)',
-            'otter', 1, row, new Date(Date.now() - 40 * 24 * 3600_000).toISOString());
-        expect(await getCachedImages(user, 'otter', 1, IMAGE_CACHE_TTL_MS)).toBeNull();
-        // không truyền maxAgeMs thì vẫn trả — dùng cho chỗ không cần tươi
         expect(await getCachedImages(user, 'otter', 1)).toBe(row);
     });
 
-    it('fetched_at rác thì coi như hết hạn, không giữ mãi hàng không rõ tuổi', async () => {
+    /**
+     * Trước đây hàng quá 30 ngày bị coi như không có. Bỏ hẳn: link chết giờ
+     * được phát hiện bằng việc nó hỏng thật, không phải bằng tuổi. Và hết hạn
+     * theo thời gian tự sinh lỗi riêng — đúng hôm cache hết hạn mà nguồn ảnh
+     * đang chặn thì một từ đang có ảnh tử tế bỗng trắng trơn.
+     */
+    it('hàng cũ cả năm vẫn dùng', async () => {
+        const user = await makeUser();
+        await user.runAsync(
+            'INSERT INTO image_cache (query, page, json, fetched_at) VALUES (?,?,?,?)',
+            'otter', 1, row, new Date(Date.now() - 400 * 24 * 3600_000).toISOString());
+        expect(await getCachedImages(user, 'otter', 1)).toBe(row);
+    });
+
+    it('fetched_at rác cũng vẫn dùng — tuổi không còn là tiêu chí', async () => {
         const user = await makeUser();
         await user.runAsync(
             'INSERT INTO image_cache (query, page, json, fetched_at) VALUES (?,?,?,?)',
             'otter', 1, row, 'không phải ngày');
-        expect(await getCachedImages(user, 'otter', 1, IMAGE_CACHE_TTL_MS)).toBeNull();
+        expect(await getCachedImages(user, 'otter', 1)).toBe(row);
     });
 });
 
@@ -805,5 +847,34 @@ describe('tokenize — tách từ cho double-tap tra cứu', () => {
     });
     it('từ có gạch nối là một token', () => {
         expect(splitWords('a well-known fact').filter((_, i) => i % 2 === 1)).toContain('well-known');
+    });
+});
+
+describe('titleMatchRatio — mẩu từ quá ngắn không được thành needle', () => {
+    const res = (...titles: string[]) => titles.map((t) => ({
+        image: 'i', thumbnail: 't', title: t, source: '', sourceUrl: '',
+    }));
+
+    /**
+     * Lỗi thật đã dính: nghĩa của "otter" chứa "(= with skin between the
+     * toes)". `toes` bị cắt hậu tố `es` thành `to`, và `.includes("to")` khớp
+     * Story/History/Photo/October — guard chấm 100% cho một trang toàn bìa
+     * sách rồi đem cache luôn, và cache thì không hết hạn.
+     */
+    it('"toes" không được cắt thành "to"', () => {
+        const q = 'otter a small animal with skin between the toes';
+        const garbage = res('Story She Left Behind', 'A History of Photography', 'October Sky');
+        expect(titleMatchRatio(garbage, q)).toBe(0);
+    });
+
+    it('vẫn khớp gốc từ khi phần cắt còn đủ dài', () => {
+        // "otters" → "otter" (5 ký tự, giữ)
+        expect(titleMatchRatio(res('Northern River Otter'), 'otters live in rivers')).toBe(1);
+    });
+
+    it('ảnh đúng chủ đề vẫn được nhận', () => {
+        const q = 'otter a small animal that has four webbed feet and thick brown fur';
+        const good = res('River Otter Feet', 'Do Otters Have Webbed Feet?', 'Otters — Habitat & Diet');
+        expect(titleMatchRatio(good, q)).toBe(1);
     });
 });

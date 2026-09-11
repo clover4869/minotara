@@ -41,11 +41,19 @@ const SEARCH_URL = 'https://www.bing.com/images/async';
 const TIMEOUT_MS = 8000;
 
 /**
- * Cache ảnh hết hạn sau 30 ngày. Trước đây câu SELECT không nhìn `fetched_at`
- * nên cache sống mãi: endpoint chết rồi mà vài từ vẫn có ảnh (cache cũ), từ
- * mới thì báo lỗi — nhìn ra như lỗi ngắt quãng thay vì một nguồn đã hỏng.
+ * Cache ảnh KHÔNG hết hạn.
+ *
+ * Trước đây để 30 ngày, lý do là "endpoint chết rồi mà cache cũ vẫn có ảnh
+ * thì nhìn như lỗi ngắt quãng". Lý do đó đã hết giá trị từ khi mỗi ô ảnh tự
+ * nhảy sang link khác lúc link chết và chỉ gọi mạng lại khi cạn ảnh dự phòng
+ * (xem components/resilient-image.tsx): link hỏng giờ được phát hiện bằng
+ * việc nó hỏng thật, không phải bằng việc đoán theo tuổi.
+ *
+ * Và hết hạn theo thời gian lại tự tạo ra một vấn đề khác: nguồn ảnh có lúc
+ * chặn, nên đúng ngày cache hết hạn mà Bing đang chặn thì một từ đang có ảnh
+ * tử tế bỗng thành không có gì.
  */
-export const IMAGE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const CACHE_KEEP = 12;
 
 /**
  * User-Agent PHẢI khai đúng nền tảng đang chạy. Trước đây chỗ này khai
@@ -144,10 +152,25 @@ const STOP = new Set([
  */
 export function titleMatchRatio(results: ImageResult[], query: string): number {
     if (!results.length) return 0;
-    const stem = (w: string) => w.replace(/(es|s)$/i, '');
+    /*
+      Cắt hậu tố NHƯNG không để lọt mẩu quá ngắn.
+
+      Lọc `length >= 3` phải chạy CẢ SAU khi cắt, không chỉ trước. Thiếu bước
+      đó thì "toes" → "to", và `.includes("to")` khớp gần như mọi tiêu đề tiếng
+      Anh — Story, History, Photo, October. Guard coi như không tồn tại đúng ở
+      những truy vấn dài nhất, tức là những truy vấn dễ bị trả lạc đề nhất.
+
+      Đã dính thật: nghĩa của "otter" có "(= with skin between the toes)", nên
+      guard chấm 100% cho một trang toàn bìa sách và đem cache luôn.
+    */
+    const stem = (w: string) => {
+        const cut = w.replace(/(es|s)$/i, '');
+        return cut.length >= 3 ? cut : w;
+    };
     const needles = query.toLowerCase().split(/[^a-z0-9'-]+/)
         .filter((w) => w.length >= 3 && !STOP.has(w))
-        .map(stem);
+        .map(stem)
+        .filter((w) => w.length >= 3);
     if (!needles.length) return 1; // không có gì để so — đừng loại
     const hit = results.filter((r) => {
         const t = r.title.toLowerCase();
@@ -190,8 +213,6 @@ export interface ImageResult {
     title: string;
     source: string;
     sourceUrl: string;
-    width: number;
-    height: number;
 }
 
 async function fetchWithTimeout(fetchImpl: typeof fetch, url: string, init: RequestInit): Promise<Response> {
@@ -250,10 +271,6 @@ export function parseBingImages(html: string): ImageResult[] {
             title: d?.t ?? d?.desc ?? '',
             source: hostOf(sourceUrl),
             sourceUrl,
-            // Bing để kích thước ở một thẻ khác, không nằm trong JSON này. UI
-            // không đọc tới nên để 0 thay vì đi bóc thêm một chỗ nữa.
-            width: 0,
-            height: 0,
         });
     }
     return out;
@@ -320,23 +337,40 @@ function throttleNetwork(): Promise<void> {
     return mine;
 }
 
+export interface SearchOpts {
+    page?: number;
+    /**
+     * Bỏ qua cache, lấy mới và ghi đè. Dùng khi MỌI link đã cache đều chết —
+     * lúc đó cache không còn giá trị gì, giữ lại chỉ để hiện ô ảnh vỡ.
+     */
+    forceRefresh?: boolean;
+    /** Tiêm để test. */
+    fetchImpl?: typeof fetch;
+}
+
 export async function searchImages(
     userDb: DbLike,
     rawQuery: string,
-    page = 1,
-    fetchImpl: typeof fetch = fetch,
+    opts: SearchOpts = {},
 ): Promise<ImageSearchOut> {
+    const page = opts.page ?? 1;
+    const fetchImpl = opts.fetchImpl ?? fetch;
+    const fresh = !!opts.forceRefresh;
     const query = rawQuery.trim().toLowerCase();
     if (!query) return { results: [], fromCache: false, failed: false };
     const key = `${query}\u0000${page}`;
-    const running = inflight.get(key);
+    // `fresh` nằm trong khoá gộp: một lời gọi "lấy mới" không được nhận lại
+    // kết quả của lời gọi "đọc cache" đang chạy — nó gọi lại chính vì kết quả
+    // trong cache đã vô dụng.
+    const flightKey = fresh ? `${key} fresh` : key;
+    const running = inflight.get(flightKey);
     if (running) return running;
-    const p = doSearch(userDb, query, page, fetchImpl);
-    inflight.set(key, p);
+    const p = doSearch(userDb, query, page, fetchImpl, fresh);
+    inflight.set(flightKey, p);
     try {
         return await p;
     } finally {
-        inflight.delete(key);
+        inflight.delete(flightKey);
     }
 }
 
@@ -345,11 +379,18 @@ async function doSearch(
     query: string,
     page: number,
     fetchImpl: typeof fetch,
+    forceRefresh: boolean,
 ): Promise<ImageSearchOut> {
-    const cached = await getCachedImages(userDb, query, page, IMAGE_CACHE_TTL_MS);
+    // Không truyền maxAgeMs: cache ảnh không hết hạn nữa (xem CACHE_KEEP).
+    const cached = forceRefresh ? null : await getCachedImages(userDb, query, page);
     if (cached) {
         try {
-            return { results: JSON.parse(cached), fromCache: true, failed: false };
+            const parsed = JSON.parse(cached);
+            // Mảng rỗng là hàng cache vô dụng — đi lấy mới, thay vì trả về
+            // "thành công, 0 ảnh" rồi để UI hiện khoảng trống vĩnh viễn.
+            if (Array.isArray(parsed) && parsed.length) {
+                return { results: parsed, fromCache: true, failed: false };
+            }
         } catch {
             // hàng cache hỏng — đi lấy mới thay vì báo lỗi luôn
         }
@@ -378,8 +419,13 @@ async function doSearch(
             if (ratio < MIN_TITLE_MATCH_RATIO) {
                 throw new Error(`kết quả lạc đề (${Math.round(ratio * 100)}% tiêu đề khớp)`);
             }
-            await cacheImages(userDb, query, page, JSON.stringify(results));
-            return { results, fromCache: false, failed: false };
+            // Lưu 12 chứ không lưu cả 35: 9 cái cho lưới tab Ảnh, còn lại là
+            // dự phòng cho lúc link chết. Cache giờ sống vĩnh viễn và ghi theo
+            // TỪNG NGHĨA, nên một từ nhiều nghĩa như `take` (43 nghĩa) mà lưu
+            // cả 35 ảnh mỗi nghĩa là hàng trăm KB cho một từ.
+            const keep = results.slice(0, CACHE_KEEP);
+            await cacheImages(userDb, query, page, JSON.stringify(keep));
+            return { results: keep, fromCache: false, failed: false };
         } catch {
             if (attempt === RETRY_ATTEMPTS - 1) return { results: [], fromCache: false, failed: true };
             await new Promise((r) => setTimeout(r, RETRY_DELAY_MS + Math.random() * RETRY_DELAY_JITTER_MS));

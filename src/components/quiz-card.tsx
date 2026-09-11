@@ -12,9 +12,13 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { Image as ExpoImage } from 'expo-image';
 
 import type { QuizQuestion } from '@/services/quiz';
+import { useImagePool } from '@/components/use-image-pool';
 import { usePalette } from '@/theme/use-palette';
 import { FONT_MULT, useApp } from '@/stores/app';
 import type { Semantic } from '@/theme/tokens';
+
+/** Tối đa bao nhiêu ảnh trong carousel — khớp CACHE_KEEP trong image-search. */
+const MAX_QUIZ_IMAGES = 12;
 
 export function QuizCard({ question, picked, onPick }: {
     question: QuizQuestion | null;
@@ -38,15 +42,11 @@ export function QuizCard({ question, picked, onPick }: {
             <Text style={s.word}>{question.headword}</Text>
             {question.ipa ? <Text style={s.ipa}>{question.ipa}</Text> : null}
 
-            {/* Hàng ảnh giữ chiều cao cố định kể cả khi chưa tải xong hoặc
-                không có ảnh: ảnh về muộn mà làm cụm đáp án tụt xuống thì ngón
-                tay đang chạm sẽ trúng nhầm ô. Thà chừa chỗ trống. */}
+            {/* Carousel vuốt ngang, giữ chiều cao cố định kể cả khi chưa tải
+                xong hoặc không có ảnh: ảnh về muộn mà làm cụm đáp án tụt xuống
+                thì ngón tay đang chạm sẽ trúng nhầm ô. Thà chừa chỗ trống. */}
             <View style={s.images}>
-                {(question.images ?? []).map((u) => (
-                    <View key={u} style={s.imgCell}>
-                        <ExpoImage source={{ uri: u }} style={{ flex: 1 }} contentFit="cover" />
-                    </View>
-                ))}
+                <QuizImages urls={question.images ?? []} s={s} />
             </View>
 
             <Text style={s.prompt}>Nghĩa nào đúng?</Text>
@@ -82,14 +82,57 @@ export function QuizCard({ question, picked, onPick }: {
     );
 }
 
+type Styles = ReturnType<typeof makeStyles>;
+
+/**
+ * Ảnh của câu hỏi: vuốt ngang xem hết, không phải hai ô tĩnh.
+ *
+ * Không có dấu chấm chỉ trang — mép ảnh kế tiếp đã hở ra sẵn ở rìa phải, tự
+ * nó là lời mời vuốt; thêm hàng chấm chỉ là thêm thứ để nhìn giữa từ và bốn
+ * đáp án.
+ *
+ * `pagingEnabled` chứ không cuộn tự do: dừng đúng từng ảnh thì vuốt bằng ngón
+ * cái lúc đang đọc đáp án không để lại một ảnh nằm nửa vời.
+ *
+ * Link chết thì loại khỏi pool và ảnh dự phòng lên thay (useImagePool). Ở đây
+ * KHÔNG truyền refetch: đang giữa phiên ôn, gọi thêm mạng để cứu một ảnh minh
+ * hoạ không đáng — còn ba nghĩa và cả bốn đáp án vẫn nguyên.
+ */
+function QuizImages({ urls, s }: { urls: string[]; s: Styles }) {
+    const pool = useImagePool(urls, MAX_QUIZ_IMAGES);
+    if (!pool.visible.length) return null;
+    return (
+        <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={s.carousel}
+        >
+            {pool.visible.map((u) => (
+                <View key={u} style={s.imgCell}>
+                    <ExpoImage
+                        source={{ uri: u }}
+                        style={{ flex: 1 }}
+                        contentFit="cover"
+                        onError={() => pool.markDead(u)}
+                    />
+                </View>
+            ))}
+        </ScrollView>
+    );
+}
+
 function makeStyles(t: Semantic, fs: number) {
     return StyleSheet.create({
         center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
         scroll: { padding: 16, paddingBottom: 32, alignItems: 'stretch' },
         word: { fontSize: 34 * fs, fontWeight: '700', textAlign: 'center', color: t.text.primary },
         ipa: { fontSize: 15 * fs, color: t.text.secondary, textAlign: 'center', marginTop: 4 },
-        images: { flexDirection: 'row', gap: 8, justifyContent: 'center', height: 120, marginTop: 14 },
-        imgCell: { width: 120, height: 120, borderRadius: 12, overflow: 'hidden', backgroundColor: t.surface.raised },
+        images: { height: 160, marginTop: 14 },
+        // Hở 8px bên phải mỗi ảnh: mép ảnh kế tiếp lộ ra đủ để người dùng
+        // biết còn ảnh nữa mà vuốt, không cần dấu chấm chỉ trang.
+        carousel: { gap: 8, paddingHorizontal: 4 },
+        imgCell: { width: 160, height: 160, borderRadius: 12, overflow: 'hidden', backgroundColor: t.surface.raised },
         prompt: { fontSize: 13, color: t.text.tertiary, marginTop: 20, marginBottom: 10, textAlign: 'center' },
         choice: {
             borderWidth: 1, borderColor: t.border.default, borderRadius: 12,

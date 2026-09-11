@@ -78,6 +78,16 @@ const MIGRATIONS: string[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_alarm_events_time ON alarm_events(at DESC);
     `,
+    // v5 — dọn cache ảnh MỘT LẦN.
+    //
+    // Cần thiết vì hai thay đổi cộng lại: (a) guard chống lạc đề từng có lỗ —
+    // nghĩa chứa "toes" bị cắt thành needle "to", khớp mọi tiêu đề tiếng Anh,
+    // nên một trang toàn bìa sách vẫn được chấm 100% và đem cache; (b) cache
+    // ảnh giờ KHÔNG hết hạn, nên những hàng rác đó sẽ sống mãi. TTL 30 ngày
+    // từng âm thầm làm việc dọn này; bỏ TTL thì phải dọn tay đúng một lần.
+    `
+    DELETE FROM image_cache;
+    `,
 ];
 
 export async function migrateUserDb(db: DbLike): Promise<void> {
@@ -183,19 +193,24 @@ export async function updateUserMeaning(db: DbLike, entryId: number, meaning: st
 export const clearViCache = (db: DbLike) => db.runAsync('DELETE FROM vi_cache');
 
 // ---------------------------------------------------------------- image search cache
+/**
+ * Cache ảnh KHÔNG hết hạn — không còn tham số tuổi.
+ *
+ * Bản trước nhận `maxAgeMs` và loại hàng quá 30 ngày. Bỏ đi vì link chết giờ
+ * được phát hiện bằng việc nó hỏng thật (components/resilient-image.tsx tự
+ * nhảy link, cạn mới gọi mạng lại), chứ không phải bằng cách đoán theo tuổi.
+ * Giữ lại tham số không ai truyền chỉ là lời mời bật lại TTL — mà TTL còn tự
+ * sinh lỗi riêng: đúng hôm cache hết hạn mà nguồn ảnh đang chặn thì một từ
+ * đang có ảnh tử tế bỗng trắng trơn.
+ *
+ * `fetched_at` vẫn ghi, để còn biết hàng lấy từ bao giờ khi cần soi.
+ */
 export async function getCachedImages(
-    db: DbLike, query: string, page: number, maxAgeMs?: number,
+    db: DbLike, query: string, page: number,
 ): Promise<string | null> {
-    const row = await db.getFirstAsync<{ json: string; fetched_at: string | null }>(
-        'SELECT json, fetched_at FROM image_cache WHERE query = ? AND page = ?', query, page);
-    if (!row) return null;
-    if (maxAgeMs != null) {
-        // Hàng cũ có thể không có fetched_at hợp lệ — coi như đã hết hạn thì
-        // an toàn hơn là giữ mãi một kết quả không biết lấy từ bao giờ.
-        const at = row.fetched_at ? Date.parse(row.fetched_at) : NaN;
-        if (!Number.isFinite(at) || Date.now() - at > maxAgeMs) return null;
-    }
-    return row.json;
+    const row = await db.getFirstAsync<{ json: string }>(
+        'SELECT json FROM image_cache WHERE query = ? AND page = ?', query, page);
+    return row?.json ?? null;
 }
 export const cacheImages = (db: DbLike, query: string, page: number, json: string) =>
     db.runAsync(
@@ -238,7 +253,6 @@ export async function persistGrades(db: DbLike, graded: SrsState[]) {
 const SETTING_DEFAULTS: Record<string, string> = {
     pref_dialect: 'us',
     autoplay: '1',
-    review_autoplay: '0',
     font_scale: 'm',
     theme_mode: 'system',
 };

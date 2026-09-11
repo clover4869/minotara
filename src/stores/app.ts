@@ -45,10 +45,18 @@ export const useApp = create<AppState>((set) => ({
         const tm = await getSetting(db, 'theme_mode');
         set({
             prefDialect: (await getSetting(db, 'pref_dialect')) === 'us' ? 'us' : 'uk',
-            // Máy nào từng bật riêng "Tự động đọc từ" khi ôn thì vẫn được kế
-            // thừa, khỏi phải đi bật lại sau khi hai công tắc gộp làm một.
-            autoplay: (await getSetting(db, 'autoplay')) === '1'
-                || (await getSetting(db, 'review_autoplay')) === '1',
+            /*
+              Phát âm là MẶC ĐỊNH BẬT, chỉ tắt khi người dùng tự tắt hẳn — nên
+              kiểm tra "khác '0'" chứ không phải "bằng '1'".
+              Không phải chuyện chữ nghĩa: hai cách đọc lệch nhau ở đúng chỗ
+              giá trị không đọc được (chưa có hàng, hàng rỗng, giá trị lạ).
+                so với '1'  → rơi về IM LẶNG, và im lặng thì không ai đi báo lỗi,
+                              chỉ thấy "sao tự dưng mất tiếng"
+                khác  '0'  → rơi về PHÁT, đúng ý mặc định
+              Bỏ luôn phép OR với `review_autoplay`: nó từng để kế thừa công
+              tắc cũ, nhưng giờ thiếu giá trị đã tự ra "bật" nên không cần nữa.
+            */
+            autoplay: (await getSetting(db, 'autoplay')) !== '0',
             fontScale: fs === 's' || fs === 'l' ? fs : 'm',
             themeMode: tm === 'light' || tm === 'dark' ? tm : 'system',
         });

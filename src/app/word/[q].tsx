@@ -23,9 +23,10 @@ import { playUrl, pickAudioUrl } from '@/services/audio';
 import { addHistory, getSaved, saveWord, unsaveWord, updateUserMeaning, type SavedWord } from '@/db/user';
 import { useApp, FONT_MULT } from '@/stores/app';
 import { Speaker, Chip, CefrBadge, IconButton, Icons, UiIcon } from '@/components/dict-ui';
-import { Image as ExpoImage } from 'expo-image';
-import { searchImages, imageQueryFor } from '@/services/image-search';
-import { WordImages, MAX_SHOWN } from '@/components/word-images';
+import {
+    prefetchWordImages, prefetchTargetsFor, type PrefetchHandle,
+} from '@/services/image-prefetch';
+import { WordImages, type ImageBlock } from '@/components/word-images';
 import { TappableText } from '@/components/tappable-text';
 import { SearchOverlay } from '@/components/search-overlay';
 import { usePalette } from '@/theme/use-palette';
@@ -105,6 +106,21 @@ export default function WordDetail() {
     const senses = (data?.senses ?? []).filter((x) => x.definition);
     const isStub = !!result && result.formOf.length > 0 && senses.length === 0;
 
+    /*
+      Từ dùng để tra ảnh. ENTRY ĐANG XEM đứng trước, lemma của dạng biến thể
+      chỉ là đường lùi.
+
+      Thứ tự cũ là ngược lại, và nó sai ở đúng những từ vừa có entry riêng vừa
+      là biến thể của từ khác: "curling" có entry riêng (môn thể thao) nhưng
+      cũng là V-ing của "curl", nên nó đi tra ảnh cho `curl` + nghĩa môn
+      curling — một truy vấn tự mâu thuẫn, và guard chống lạc đề loại thẳng.
+      Nhìn ra thành "Nguồn ảnh không phản hồi", không ai đoán được vì sao.
+
+      Ca mà lemma vẫn cần thiết: "ran" KHÔNG có entry riêng, nên `entry` là
+      undefined và ta rơi về lemma "run" — đúng như trước.
+    */
+    const imageWord = entry?.headword ?? result?.formOf[0]?.lemma ?? result?.query ?? '';
+
     useEffect(() => {
         if (!entry) { setInflections([]); setSavedRow(null); return; }
         let alive = true;
@@ -134,49 +150,48 @@ export default function WordDetail() {
     }, [entry?.id, autoplay]);
 
     /*
-      Prefetch ảnh ngay khi mở từ, để lúc bấm tab Ảnh không phải ngồi nhìn
-      spinner chờ Bing. Ba chốt giữ cho nó không phá trải nghiệm:
+      Quét ảnh cho TỪNG NGHĨA và từng idiom ngay khi mở từ, tuần tự, chạy nền.
 
-      - Chờ 600ms: render màn từ + autoplay phát âm đi trước, prefetch xếp sau.
-      - useFocusEffect chứ không useEffect: double-tap tra chuỗi container →
-        bottle → glass trong vài giây thì các màn bị che huỷ luôn prefetch còn
-        chờ — không bắn N request cho những từ chỉ đi ngang qua.
-      - Phân theo mạng: Wi-Fi tải cả kết quả lẫn 9 thumbnail (~200KB, mở tab là
-        hiện tức thì); 4G chỉ tải kết quả tìm — phần chậm nhất, ~50-80KB đã
-        gzip — thumbnail để lúc thật sự mở tab, đỡ tốn data cho người không xem.
+      Đặt cược vào nhịp dùng thật: từ điển nằm offline nên phần nghĩa tiếng Anh
+      hiện tức thì và người dùng đọc nó một lúc trước khi bấm sang tab Ảnh —
+      quét trong khoảng đó thì mở tab ra là có ảnh sẵn cho mọi nghĩa. Cache
+      không hết hạn nên mỗi nghĩa chỉ trả giá đúng một lần trong đời.
 
-      Đã mở tab rồi (visited có V_IMG) thì thôi — WordImages tự lo. Trùng lời
-      gọi với WordImages thì map inflight trong image-search.ts gộp làm một.
+      Ba chốt giữ cho nó không thành kẻ dội mạng:
+      - Chờ 600ms: render màn từ + autoplay phát âm đi trước, quét xếp sau.
+      - useFocusEffect + cancel(): tra chuỗi container → bottle → glass trong
+        vài giây thì màn bị che huỷ luôn hàng đợi của nó. `take` có 43 nghĩa +
+        10 idiom; không huỷ thì lướt mười từ là hàng đợi dài hơn cả phiên dùng.
+      - Chỉ quét khi có mạng, và bỏ hẳn phần tải trước thumbnail: 53 nghĩa ×
+        12 thumbnail là quá nhiều để tải mò. Kết quả tìm (phần chậm nhất) đã
+        nằm trong cache, thumbnail để lúc thật sự nhìn thấy ô ảnh.
+
+      Tuần tự chứ không song song — lớp giãn nhịp 700ms trong image-search.ts
+      tự rải chúng ra; bắn 53 request một lúc là cách nhanh nhất để bị chặn.
     */
-    const visitedRef = useRef(visited);
-    visitedRef.current = visited;
     useFocusEffect(useCallback(() => {
-        if (!result || result.kind === 'miss') return;
-        const q = result.formOf[0]?.lemma ?? result.entries[0]?.headword ?? result.query;
-        if (!q) return;
-        // Phải DÙNG ĐÚNG truy vấn của tab Ảnh: cache key là truy vấn, lệch một
-        // chữ là prefetch xong tab vẫn miss cache rồi tải lại lần nữa.
-        const defn = (() => {
-            try {
-                const d0 = result.entries[0];
-                return d0 ? parseEntryData(d0.data).senses.find((x) => x.definition)?.definition ?? null : null;
-            } catch { return null; }
-        })();
+        if (!result || result.kind === 'miss' || !imageWord) return;
+        // Phải dựng ĐÚNG danh sách của tab Ảnh, từ ĐÚNG entry đang xem: cache
+        // khoá theo truy vấn nên lệch một chữ là quét xong tab vẫn miss cache
+        // rồi tải lại lần nữa. Dùng nghĩa của entry hiện tại chứ không phải
+        // entries[0] — homograph bank-noun/bank-verb có bộ nghĩa khác nhau,
+        // lấy entries[0] là quét cho thứ người dùng không mở.
+        const targets = prefetchTargetsFor(imageWord, senses, data?.idioms ?? []);
+        if (!targets.length) return;
+
+        let handle: PrefetchHandle | null = null;
         let alive = true;
         const timer = setTimeout(async () => {
             try {
-                if (visitedRef.current.has(V_IMG)) return;
                 const net = await Network.getNetworkStateAsync();
                 if (!alive || !net.isConnected) return;
-                const wifi = net.type === Network.NetworkStateType.WIFI
-                    || net.type === Network.NetworkStateType.ETHERNET;
-                const r = await searchImages(await openUser(), imageQueryFor(q, defn));
-                if (!alive || r.failed || !wifi) return;
-                ExpoImage.prefetch(r.results.slice(0, MAX_SHOWN).map((x) => x.thumbnail));
-            } catch { /* prefetch là cơ hội, không phải nghĩa vụ — hỏng thì tab Ảnh tự lo như cũ */ }
+                handle = prefetchWordImages(await openUser(), targets);
+            } catch { /* quét là cơ hội, không phải nghĩa vụ — hỏng thì tab Ảnh tự lo */ }
         }, 600);
-        return () => { alive = false; clearTimeout(timer); };
-    }, [result?.query]));
+        return () => { alive = false; clearTimeout(timer); handle?.cancel(); };
+        // entry?.id trong deps: đổi tab homograph (bank-noun → bank-verb) là
+        // đổi hẳn bộ nghĩa, phải huỷ hàng đợi cũ và quét cho entry mới.
+    }, [result?.query, entry?.id]));
 
     if (!result) {
         return (
@@ -200,9 +215,22 @@ export default function WordDetail() {
     const viForPos = vi ? meaningsForPos(vi.list, entry?.pos ?? null) : null;
     const viOther = vi ? meaningsOtherPos(vi.list, entry?.pos ?? null) : [];
     const formWord = result.formOf[0]?.form ?? result.query;
-    // Same lemma-first priority the Vietnamese lookup uses: searching images for
-    // "ran" returns noise, images for "run" are the ones that aid memory.
-    const imageQuery = result.formOf[0]?.lemma ?? entry?.headword ?? result.query;
+    /*
+      Một block ảnh cho mỗi nghĩa, rồi tới mỗi idiom — cùng thứ tự và cùng cách
+      dựng truy vấn với bộ quét nền (services/image-prefetch.ts). Phải dùng
+      CHUNG một hàm dựng: cache khoá theo truy vấn, nên lệch một chữ giữa hai
+      chỗ là quét xong mà tab vẫn miss cache rồi tải lại từ đầu.
+    */
+    // KHÔNG useMemo: đoạn này nằm sau một `return` sớm ở trên, nên thêm hook ở
+    // đây là hook có điều kiện — React đổ "Rendered more hooks than during the
+    // previous render" và cả màn thành trắng. Đã dính đúng một lần. Phép tính
+    // chỉ là vài chục phép nối chuỗi, chạy mỗi lần vẽ cũng không sao; các
+    // <Block> con giữ state riêng nhờ `key` ổn định, không bị dựng lại.
+    const imageBlocks: ImageBlock[] = (() => {
+        const targets = prefetchTargetsFor(imageWord, senses, data?.idioms ?? []);
+        const senseCount = senses.filter((x) => x.definition?.trim()).length;
+        return targets.map((tg, i) => ({ ...tg, isIdiom: i >= senseCount }));
+    })();
     const youglish = `https://youglish.com/pronounce/${encodeURIComponent(formWord)}/english/${dialect === 'us' ? 'us' : 'uk'}`;
     const grouped = groupFormOf(result.formOf);
     const saved = !!savedRow;
@@ -426,7 +454,7 @@ export default function WordDetail() {
         // Padding phải ở đây: trước kia <Accordion> cấp lề cho lưới ảnh, bỏ accordion
         // đi thì lưới tràn sát mép trong khi mọi thứ khác vẫn thụt vào.
         <View style={s.section}>
-            <WordImages word={imageQuery} definition={senses[0]?.definition ?? null} />
+            <WordImages blocks={imageBlocks} />
         </View>
     );
 
