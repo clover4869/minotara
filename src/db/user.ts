@@ -62,6 +62,22 @@ const MIGRATIONS: string[] = [
     ALTER TABLE srs_state ADD COLUMN learning_steps INTEGER;
     ALTER TABLE srs_state ADD COLUMN last_review TEXT;
     `,
+    // v4 — nhật ký báo thức học bài. Cấu hình báo thức KHÔNG nằm ở đây mà ở
+    // bảng `settings` (một báo thức, JSON một dòng) — bảng riêng chỉ để ghi
+    // lại từng lần bắn.
+    //
+    // Cái bảng này tồn tại vì rủi ro lớn nhất của tính năng nằm ngoài tầm với
+    // của app: máy Xiaomi/Oppo/Samsung giết tiến trình nền và nuốt luôn báo
+    // thức. Khi người dùng nói "sáng nay nó không kêu", đây là chỗ duy nhất
+    // phân biệt được "OS không bắn" với "có bắn mà bỏ qua".
+    `
+    CREATE TABLE IF NOT EXISTS alarm_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        status TEXT NOT NULL,
+        at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_alarm_events_time ON alarm_events(at DESC);
+    `,
 ];
 
 export async function migrateUserDb(db: DbLike): Promise<void> {
@@ -233,3 +249,76 @@ export async function getSetting(db: DbLike, key: string): Promise<string> {
 }
 export const setSetting = (db: DbLike, key: string, value: string) =>
     db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', key, value);
+
+// ---------------------------------------------------------------- báo thức
+/**
+ * Một báo thức thôi, nên nằm trong `settings` dạng JSON thay vì một bảng
+ * riêng: bảng sẽ kéo theo UI thêm/sửa/xoá từng dòng mà chưa ai cần.
+ *
+ * `days` là thứ trong tuần theo quy ước của expo-notifications: 1 = Chủ nhật
+ * … 7 = Thứ bảy. Không dùng quy ước JS (0 = CN) để chỗ đặt lịch khỏi phải
+ * chuyển đổi — chuyển đổi thầm lặng giữa hai quy ước lệch-một là đúng loại
+ * lỗi khiến báo thức kêu sai ngày mà không ai đọc ra được từ code.
+ */
+export interface AlarmConfig {
+    enabled: boolean;
+    hour: number;
+    minute: number;
+    days: number[];
+    /** Số câu trả lời ĐÚNG phải đạt mới tắt được. Không phải số câu đã xem. */
+    target: number;
+    kind: 'review' | 'quiz';
+}
+
+export const ALARM_DEFAULT: AlarmConfig = {
+    enabled: false,
+    hour: 7,
+    minute: 0,
+    days: [2, 3, 4, 5, 6], // thứ hai → thứ sáu
+    // Một câu. Việc của báo thức là bắt tỉnh ngủ và động não một nhịp, không
+    // phải ép xong buổi ôn tập ngay lúc vừa mở mắt — muốn ôn tiếp thì đã có
+    // sẵn tab Ôn tập, và ôn vì muốn khác hẳn ôn vì đang bị chuông giữ.
+    target: 1,
+    kind: 'quiz',
+};
+
+/** Đọc cấu hình, luôn trả về object hợp lệ — hỏng thì rơi về mặc định chứ
+ *  không ném lỗi, vì chỗ gọi là lúc app khởi động. */
+export async function getAlarm(db: DbLike): Promise<AlarmConfig> {
+    const raw = await getSetting(db, 'alarm');
+    if (!raw) return { ...ALARM_DEFAULT };
+    try {
+        const p = JSON.parse(raw) as Partial<AlarmConfig>;
+        const days = Array.isArray(p.days)
+            ? p.days.filter((d) => Number.isInteger(d) && d >= 1 && d <= 7)
+            : ALARM_DEFAULT.days;
+        return {
+            enabled: !!p.enabled,
+            hour: clampInt(p.hour, 0, 23, ALARM_DEFAULT.hour),
+            minute: clampInt(p.minute, 0, 59, ALARM_DEFAULT.minute),
+            days: days.length ? days : ALARM_DEFAULT.days,
+            target: clampInt(p.target, 1, 30, ALARM_DEFAULT.target),
+            kind: p.kind === 'review' ? 'review' : 'quiz',
+        };
+    } catch {
+        return { ...ALARM_DEFAULT };
+    }
+}
+
+function clampInt(v: unknown, lo: number, hi: number, fallback: number): number {
+    const n = typeof v === 'number' ? Math.round(v) : NaN;
+    return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
+}
+
+export const setAlarm = (db: DbLike, cfg: AlarmConfig) =>
+    setSetting(db, 'alarm', JSON.stringify(cfg));
+
+export type AlarmEventStatus = 'fired' | 'completed' | 'missed';
+
+export const logAlarmEvent = (db: DbLike, status: AlarmEventStatus) =>
+    db.runAsync('INSERT INTO alarm_events (status) VALUES (?)', status);
+
+export async function recentAlarmEvents(db: DbLike, limit = 5) {
+    return db.getAllAsync<{ status: AlarmEventStatus; at: string }>(
+        'SELECT status, at FROM alarm_events ORDER BY at DESC LIMIT ?', limit);
+}

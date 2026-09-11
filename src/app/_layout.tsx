@@ -2,15 +2,40 @@ import { useEffect, useState } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider, Stack, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Linking from 'expo-linking';
+import * as Notifications from 'expo-notifications';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
-import { dictionaryReady, removeDictionaryFile, setOnDictionaryCorrupted } from '@/db/open';
+import { dictionaryReady, openUser, removeDictionaryFile, setOnDictionaryCorrupted } from '@/db/open';
+import { getAlarm } from '@/db/user';
+import { isAlarmNotification, rescheduleAlarm } from '@/services/alarm';
 import { useApp } from '@/stores/app';
 import { useEffectiveColorScheme } from '@/theme/use-palette';
 
 SplashScreen.preventAutoHideAsync();
+
+/**
+ * Mặc định expo-notifications NUỐT thông báo khi app đang mở. Với báo thức
+ * thì đó là hỏng: đang cầm máy lúc 7 giờ là đúng lúc cần thấy nó nhất.
+ */
+Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+    }),
+});
+
+/** Chỉ mở màn làm bài cho ĐÚNG thông báo báo thức, không phải mọi thông báo. */
+function openAlarmIfOurs(response: Notifications.NotificationResponse | null): void {
+    if (!response) return;
+    if (!isAlarmNotification(response.notification.request.content.data)) return;
+    // navigate (không phải push): chạm hai lần vào thông báo không được xếp
+    // chồng hai màn làm bài lên nhau.
+    router.navigate('/alarm-session');
+}
 
 /** Must match `expo.plugins["expo-splash-screen"].backgroundColor` in app.json — same color on both sides of the native→JS splash handoff. */
 const SPLASH_BG = '#6CC6BD';
@@ -66,6 +91,8 @@ export default function RootLayout() {
             });
         });
 
+        const notifSub = Notifications.addNotificationResponseReceivedListener(openAlarmIfOurs);
+
         (async () => {
             try {
                 const ok = await dictionaryReady();
@@ -77,10 +104,21 @@ export default function RootLayout() {
                 await SplashScreen.hideAsync();
                 setBooted(true);
             }
+            // Đặt lại lịch mỗi lần mở app, sau khi splash đã tắt nên không làm
+            // chậm khởi động. Lịch nằm ở tầng hệ điều hành và sống qua cả khởi
+            // động lại máy, nhưng đổi múi giờ / nâng cấp OS / trình dọn pin của
+            // hãng đều có thể xoá mất — đặt lại là cách rẻ nhất để bù.
+            try {
+                const cfg = await getAlarm(await openUser());
+                if (cfg.enabled) await rescheduleAlarm(cfg);
+            } catch (e) {
+                if (__DEV__) console.warn('[boot] reschedule alarm failed', e);
+            }
         })();
 
         return () => {
             sub.remove();
+            notifSub.remove();
             setOnDictionaryCorrupted(null);
         };
     }, []);
@@ -90,6 +128,12 @@ export default function RootLayout() {
     useEffect(() => {
         if (!booted) return;
         Linking.getInitialURL().then((u) => { if (u) handleDeepLink(u); });
+        // App bị tắt hẳn rồi người dùng chạm thông báo: lượt chạm đó không đi
+        // qua listener ở trên vì lúc nó nổ chưa có JS nào chạy. Hỏi lại lượt
+        // chạm đã mở app — cũng phải đợi <Stack> mounted mới điều hướng được.
+        Notifications.getLastNotificationResponseAsync()
+            .then(openAlarmIfOurs)
+            .catch(() => {});
     }, [booted]);
 
     return (
@@ -103,6 +147,10 @@ export default function RootLayout() {
                             <Stack.Screen name="import" options={{ presentation: 'modal' }} />
                             <Stack.Screen name="history" />
                             <Stack.Screen name="review-session" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
+                            <Stack.Screen name="alarm-settings" />
+                            {/* gestureEnabled: false — vuốt để quay lại cũng là
+                                một lối thoát, mà màn này cố ý không có lối nào. */}
+                            <Stack.Screen name="alarm-session" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
                             <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
                         </Stack>
                     </ThemeProvider>

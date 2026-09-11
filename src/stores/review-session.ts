@@ -27,6 +27,8 @@ export type SessionPhase = 'card' | 'done';
 export interface CardContent {
     entry_id: number;
     headword: string;
+    /** Từ loại — phiên báo thức lọc mồi nhử trắc nghiệm theo cùng từ loại. */
+    pos: string | null;
     ipa: string | null;
     audio: string | null;
     definition: string;
@@ -67,12 +69,12 @@ interface ReviewSessionState {
     clearCache(): void;
 }
 
-async function loadCard(cache: Map<number, CardContent>, entryId: number, dialect: 'uk' | 'us'): Promise<CardContent> {
+export async function loadCard(cache: Map<number, CardContent>, entryId: number, dialect: 'uk' | 'us'): Promise<CardContent> {
     if (cache.has(entryId)) return cache.get(entryId)!;
     const dict = await openDictionary();
     const user = await openUser();
     const entry = await dict.getFirstAsync<any>(
-        'SELECT id, headword, data FROM entries WHERE id = ?', entryId);
+        'SELECT id, headword, pos, data FROM entries WHERE id = ?', entryId);
     const saved = await user.getFirstAsync<SavedWord>(
         'SELECT * FROM saved_words WHERE entry_id = ?', entryId);
     const data = parseEntryData(entry.data);
@@ -86,6 +88,7 @@ async function loadCard(cache: Map<number, CardContent>, entryId: number, dialec
     const content: CardContent = {
         entry_id: entryId,
         headword: entry.headword,
+        pos: entry.pos ?? null,
         ipa: pron?.phon ?? null,
         audio: pron?.audio_mp3 ?? data.pronunciations?.uk?.audio_mp3 ?? null,
         definition: saved?.user_meaning ?? firstSense?.definition ?? '(chưa có nghĩa)',

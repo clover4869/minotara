@@ -1,15 +1,15 @@
 /** SCR-06 — Settings: dialect, autoplay, review group, data, attribution. */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
     Alert, Pressable, ScrollView, Share, StyleSheet, Switch, Text, View, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
 import { useApp } from '@/stores/app';
 import { openDictionary, openUser, dictMeta, integrityCheckDictionary, recordDictionaryMeta, removeDictionaryFile } from '@/db/open';
-import { clearHistory, clearViCache, clearImageCache, listSaved } from '@/db/user';
+import { clearHistory, clearViCache, clearImageCache, listSaved, getAlarm } from '@/db/user';
 import { clearAudioCache } from '@/services/audio';
 import { useTabBarSpace } from '@/components/glass-tab-bar';
 import { usePalette } from '@/theme/use-palette';
@@ -22,10 +22,26 @@ export default function SettingsScreen() {
     const app = useApp();
     const [dictVer, setDictVer] = useState<string | null>(null);
     const [checking, setChecking] = useState(false);
+    const [alarmSummary, setAlarmSummary] = useState('Tắt');
     useEffect(() => {
         app.loadSettings();
         openDictionary().then(dictMeta).then(setDictVer).catch(() => setDictVer(null));
     }, []);
+
+    // Đọc lại mỗi lần quay về màn này — vừa đổi giờ bên màn cấu hình xong mà
+    // dòng tóm tắt ở đây vẫn ghi giờ cũ thì không biết tin cái nào.
+    useFocusEffect(useCallback(() => {
+        let alive = true;
+        (async () => {
+            const cfg = await getAlarm(await openUser());
+            if (!alive) return;
+            const hhmm = `${String(cfg.hour).padStart(2, '0')}:${String(cfg.minute).padStart(2, '0')}`;
+            setAlarmSummary(cfg.enabled
+                ? `${hhmm} · ${cfg.days.length} ngày/tuần · ${cfg.target} câu đúng`
+                : 'Tắt');
+        })();
+        return () => { alive = false; };
+    }, []));
 
     async function checkDictionary() {
         setChecking(true);
@@ -99,6 +115,15 @@ export default function SettingsScreen() {
                         onChange={(v) => app.setFontScale(v as 's' | 'm' | 'l')}
                         s={s}
                     />
+                </Row>
+
+                <Text style={s.section}>Nhắc học</Text>
+                <Row label="Báo thức học bài"
+                    sub={alarmSummary}
+                    s={s}>
+                    <Pressable onPress={() => router.push('/alarm-settings')} hitSlop={8}>
+                        <Text style={s.link}>Cài đặt</Text>
+                    </Pressable>
                 </Row>
 
                 {/*
@@ -198,6 +223,7 @@ function makeStyles(t: Semantic) {
         rowLabelDanger: { color: t.text.error },
         rowSub: { fontSize: 12, color: t.text.tertiary, marginTop: 2 },
         comingSoon: { fontSize: 13, color: t.text.tertiary, fontStyle: 'italic' },
+        link: { fontSize: 14, color: t.accent.bg, fontWeight: '600' },
         seg: { flexDirection: 'row', borderRadius: 999, backgroundColor: t.surface.raised, padding: 3 },
         segItem: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 999 },
         segActive: { backgroundColor: t.surface.inverse },

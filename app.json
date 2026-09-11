@@ -22,7 +22,13 @@
         "monochromeImage": "./assets/icons/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "io.github.clover4869.minotara"
+      "package": "io.github.clover4869.minotara",
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ]
     },
     "web": {
       "output": "static",
@@ -48,6 +54,13 @@
       ],
       "expo-font",
       "expo-image",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icons/android-icon-monochrome.png",
+          "color": "#6CC6BD"
+        }
+      ],
       "expo-sqlite",
       "expo-status-bar",
       "expo-web-browser",
