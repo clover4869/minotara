@@ -34,8 +34,8 @@ export const FONT_MULT: Record<'s' | 'm' | 'l', number> = { s: 0.9, m: 1, l: 1.1
 
 export const useApp = create<AppState>((set) => ({
     dictReady: false,
-    prefDialect: 'uk',
-    autoplay: false,
+    prefDialect: 'us',
+    autoplay: true,
     fontScale: 'm',
     themeMode: 'system',
     setDictReady: (v) => set({ dictReady: v }),

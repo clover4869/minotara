@@ -220,8 +220,8 @@ export async function persistGrades(db: DbLike, graded: SrsState[]) {
 
 // ---------------------------------------------------------------- settings
 const SETTING_DEFAULTS: Record<string, string> = {
-    pref_dialect: 'uk',
-    autoplay: '0',
+    pref_dialect: 'us',
+    autoplay: '1',
     review_autoplay: '0',
     font_scale: 'm',
     theme_mode: 'system',

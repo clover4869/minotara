@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Network from 'expo-network';
+import { WebView } from 'react-native-webview';
 
 import { openDictionary, openUser } from '@/db/open';
 import { parseEntryData, type EntryRow, type FormRow } from '@/db/types';
@@ -42,9 +43,13 @@ const IPA_FONT = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
  * Anh–Anh đứng đầu vì đây là view DUY NHẤT chạy offline (brief §3.1 "English
  * first, network never blocks") — mặc định mở ra một tab có thể hiện "Cần mạng"
  * là trải nghiệm tệ.
+ *
+ * "Video" là tab thứ tư — nhúng YouGlish thẳng trong app bằng WebView thay vì
+ * mở trình duyệt ngoài (Linking.openURL cũ). Không cần giữ nguyên hành vi mở
+ * ngoài vì bản build này không lên Play.
  */
-const VIEWS = ['Anh–Anh', 'Ảnh', 'Tiếng Việt'] as const;
-const V_EN = 0, V_IMG = 1, V_VI = 2;
+const VIEWS = ['Anh–Anh', 'Ảnh', 'Tiếng Việt', 'Video'] as const;
+const V_EN = 0, V_IMG = 1, V_VI = 2, V_VIDEO = 3;
 
 export default function WordDetail() {
     const t = usePalette();
@@ -257,16 +262,16 @@ export default function WordDetail() {
                         <View style={{ flex: 1 }}>
                             {grouped.map((f, i) => (
                                 <View key={i} style={{ marginTop: i ? space.sm : 0 }}>
-                                    <Text style={s.formOfText}>
+                                    <Text style={[s.formOfText, { fontSize: 14 * fs }]}>
                                         <Text style={s.formOfEm}>{f.form}</Text>
                                         {' — '}{f.labels.join(' · ')} của{' '}
                                         <Text style={s.formOfEm}>{f.lemma}</Text>
                                         {f.lemma_pos ? ` (${f.lemma_pos})` : ''}
                                     </Text>
                                     <View style={s.row}>
-                                        {f.ipa_uk ? <Text style={s.ipa}>UK {f.ipa_uk}</Text> : null}
+                                        {f.ipa_uk ? <Text style={[s.ipa, { fontSize: 13 * fs }]}>UK {f.ipa_uk}</Text> : null}
                                         <Speaker url={f.audio_uk} />
-                                        {f.ipa_us ? <Text style={s.ipa}>US {f.ipa_us}</Text> : null}
+                                        {f.ipa_us ? <Text style={[s.ipa, { fontSize: 13 * fs }]}>US {f.ipa_us}</Text> : null}
                                         <Speaker url={f.audio_us} />
                                     </View>
                                 </View>
@@ -287,7 +292,7 @@ export default function WordDetail() {
                 <View style={{ paddingHorizontal: space.md, marginTop: space.md }}>
                     <View style={[s.row, { alignItems: 'baseline' }]}>
                         <Text style={[s.headword, { fontSize: 30 * fs }]}>{entry.headword}</Text>
-                        {data.homograph != null ? <Text style={s.hom}>{data.homograph}</Text> : null}
+                        {data.homograph != null ? <Text style={[s.hom, { fontSize: 12 * fs }]}>{data.homograph}</Text> : null}
                         <CefrBadge level={entry.cefr} />
                     </View>
 
@@ -310,27 +315,27 @@ export default function WordDetail() {
                         cùng hàng với chip thì hàng đó vừa chọn được vừa không, khó đọc. */}
                     {(data.grammar || data.labels) ? (
                         <View style={[s.row, { marginTop: 6, gap: 6 }]}>
-                            {data.grammar ? <Text style={s.tagBadge}>{data.grammar.replace(/^\[|\]$/g, '')}</Text> : null}
-                            {data.labels ? <Text style={s.tagBadge}>{data.labels.replace(/^\(|\)$/g, '')}</Text> : null}
+                            {data.grammar ? <Text style={[s.tagBadge, { fontSize: 11 * fs }]}>{data.grammar.replace(/^\[|\]$/g, '')}</Text> : null}
+                            {data.labels ? <Text style={[s.tagBadge, { fontSize: 11 * fs }]}>{data.labels.replace(/^\(|\)$/g, '')}</Text> : null}
                         </View>
                     ) : null}
 
                     {!isStub && (
                         <>
                             <View style={[s.row, { marginTop: space.sm }]}>
-                                {data.pronunciations?.uk?.phon ? <Text style={s.ipa}>UK {data.pronunciations.uk.phon}</Text> : null}
+                                {data.pronunciations?.uk?.phon ? <Text style={[s.ipa, { fontSize: 13 * fs }]}>UK {data.pronunciations.uk.phon}</Text> : null}
                                 <Speaker url={data.pronunciations?.uk?.audio_mp3} />
-                                {data.pronunciations?.us?.phon ? <Text style={s.ipa}>US {data.pronunciations.us.phon}</Text> : null}
+                                {data.pronunciations?.us?.phon ? <Text style={[s.ipa, { fontSize: 13 * fs }]}>US {data.pronunciations.us.phon}</Text> : null}
                                 <Speaker url={data.pronunciations?.us?.audio_mp3} />
                             </View>
                             {online && (
                                 <Pressable
-                                    onPress={() => Linking.openURL(youglish)}
+                                    onPress={() => selectView(V_VIDEO)}
                                     style={[s.row, { marginTop: space.sm }]}
-                                    accessibilityRole="link"
+                                    accessibilityRole="button"
                                     accessibilityLabel="Nghe trong video thật"
                                 >
-                                    <UiIcon icon={Icons.ExternalLink} size={14} color={t.accent.bg} />
+                                    <UiIcon icon={Icons.Play} size={14} color={t.accent.bg} />
                                     <Text style={s.youglish}>Nghe trong video thật</Text>
                                 </Pressable>
                             )}
@@ -356,9 +361,9 @@ export default function WordDetail() {
                                         <Text style={s.cardTitle}>Biến thể</Text>
                                         {inflections.map((f, i) => (
                                             <View key={i} style={[s.row, { marginTop: 8 }]}>
-                                                <Text style={s.formLabel}>{f.label_vi}</Text>
-                                                <Text style={s.formWord}>{f.form}</Text>
-                                                <Text style={s.formIpa}>{(dialect === 'us' ? f.ipa_us : f.ipa_uk) ?? '—'}</Text>
+                                                <Text style={[s.formLabel, { fontSize: 13 * fs }]}>{f.label_vi}</Text>
+                                                <Text style={[s.formWord, { fontSize: 14 * fs }]}>{f.form}</Text>
+                                                <Text style={[s.formIpa, { fontSize: 13 * fs }]}>{(dialect === 'us' ? f.ipa_us : f.ipa_uk) ?? '—'}</Text>
                                                 <Speaker url={pickAudioUrl(f, dialect)} />
                                             </View>
                                         ))}
@@ -377,8 +382,8 @@ export default function WordDetail() {
                                         {data.idioms.map((idm, i) => (
                                             <View key={i} style={{ marginTop: 8 }}>
                                                 <Text style={{ fontWeight: '600', fontSize: 14 * fs, color: t.text.primary }}>{idm.idiom}</Text>
-                                                {idm.senses[0]?.definition ? <TappableText style={s.definition}>{idm.senses[0].definition}</TappableText> : null}
-                                                {idm.senses[0]?.examples[0]?.text ? <TappableText style={s.example}>{idm.senses[0].examples[0].text}</TappableText> : null}
+                                                {idm.senses[0]?.definition ? <TappableText style={[s.definition, { fontSize: 15 * fs }]}>{idm.senses[0].definition}</TappableText> : null}
+                                                {idm.senses[0]?.examples[0]?.text ? <TappableText style={[s.example, { fontSize: 13 * fs }]}>{idm.senses[0].examples[0].text}</TappableText> : null}
                                             </View>
                                         ))}
                                     </Accordion>
@@ -395,7 +400,7 @@ export default function WordDetail() {
                                     </Accordion>
                                 )}
                                 {data.word_origin ? (
-                                    <Accordion title="Word origin" s={s} t={t}><TappableText style={s.definition}>{data.word_origin}</TappableText></Accordion>
+                                    <Accordion title="Word origin" s={s} t={t}><TappableText style={[s.definition, { fontSize: 15 * fs }]}>{data.word_origin}</TappableText></Accordion>
                                 ) : null}
                                 {data.see_also.length > 0 && (
                                     <View style={s.section}>
@@ -445,7 +450,7 @@ export default function WordDetail() {
                 {viForPos?.slice(0, 6).map((m, i) => (
                     <View key={i} style={{ marginTop: 8 }}>
                         <Text style={[s.definition, { fontSize: 15 * fs }]} selectable>{m.definition}</Text>
-                        {m.example ? <Text style={s.example}>{m.example}</Text> : null}
+                        {m.example ? <Text style={[s.example, { fontSize: 13 * fs }]}>{m.example}</Text> : null}
                     </View>
                 ))}
                 {viOther.length > 0 && (
@@ -492,12 +497,24 @@ export default function WordDetail() {
                         </Pressable>
                     </>
                 ) : savedRow?.user_meaning ? (
-                    <Text style={[s.definition, { marginTop: 8 }]} selectable>{savedRow.user_meaning}</Text>
+                    <Text style={[s.definition, { marginTop: 8, fontSize: 15 * fs }]} selectable>{savedRow.user_meaning}</Text>
                 ) : (
                     <Text style={[s.viFail, { marginTop: 6 }]}>Chưa có — flashcard dùng nghĩa từ điển.</Text>
                 )}
             </View>
         </>
+    );
+
+    /* View 4 — Video (YouGlish). Nhúng thẳng bằng WebView, không phải ScrollView:
+       WebView tự cuộn bên trong trang của nó, lồng thêm một ScrollView bọc ngoài
+       chỉ gây xung đột cuộn kép và co chiều cao về 0. Vì vậy tab này được vẽ
+       riêng ở vòng lặp render bên dưới, không đi qua `panels`. */
+    const viewVideo = online ? (
+        <WebView source={{ uri: youglish }} style={{ flex: 1 }} />
+    ) : (
+        <View style={[s.center, { flex: 1 }]}>
+            <Text style={s.viFail}>Cần mạng để xem video</Text>
+        </View>
     );
 
     const panels = [viewEn, viewImg, viewVi];
@@ -545,16 +562,27 @@ export default function WordDetail() {
                 nhờ vậy vị trí cuộn và ảnh đã tải của từng view được giữ nguyên khi
                 chuyển qua lại. View chưa vào bao giờ thì chưa nằm trong `visited`
                 nên chưa tồn tại, giữ được tính lazy. */}
-            {VIEWS.map((_, i) => (visited.has(i) ? (
-                <ScrollView
-                    key={i}
-                    style={{ display: i === view ? 'flex' : 'none' }}
-                    contentContainerStyle={{ paddingBottom: 48 }}
-                >
-                    {identity}
-                    {panels[i]}
-                </ScrollView>
-            ) : null))}
+            {VIEWS.map((_, i) => {
+                if (!visited.has(i)) return null;
+                const display = i === view ? 'flex' : 'none';
+                if (i === V_VIDEO) {
+                    return (
+                        <View key={i} style={{ flex: 1, display }}>
+                            {viewVideo}
+                        </View>
+                    );
+                }
+                return (
+                    <ScrollView
+                        key={i}
+                        style={{ display }}
+                        contentContainerStyle={{ paddingBottom: 48 }}
+                    >
+                        {identity}
+                        {panels[i]}
+                    </ScrollView>
+                );
+            })}
 
             <SearchOverlay visible={searchOpen} onClose={() => setSearchOpen(false)} />
         </SafeAreaView>
@@ -578,21 +606,23 @@ function SenseBlock({ n, sense, fs, onChip, headword, s, t }: {
     return (
         <View style={{ flexDirection: 'row', marginTop: 12 }}>
             <View style={{ width: 22, alignItems: 'center' }}>
-                {/* lineHeight khớp guideword nên chân chữ trùng nhau — xem senseNum trong makeStyles */}
-                <Text style={s.senseNum}>{n}</Text>
+                {/* lineHeight khớp dòng ĐẦU TIÊN của cột bên phải — guideword (20) khi
+                    có, nếu không thì definition (23) — nên chân chữ trùng nhau. Xem
+                    senseNum trong makeStyles. */}
+                <Text style={[s.senseNum, { fontSize: 14 * fs, lineHeight: sense.guideword ? 20 : 23 }]}>{n}</Text>
                 {sense.cefr ? <View style={[s.cefrDot, { backgroundColor: t.accent.bg }]} /> : null}
             </View>
             <View style={{ flex: 1 }}>
-                {sense.guideword ? <Text style={s.guideword}>{sense.guideword}</Text> : null}
+                {sense.guideword ? <Text style={[s.guideword, { fontSize: 11 * fs }]}>{sense.guideword}</Text> : null}
                 <TappableText style={[s.definition, { fontSize: 15 * fs }]} ignore={headword}>{sense.definition}</TappableText>
                 {(sense.grammar || sense.labels) ? (
                     <View style={[s.row, { marginTop: 4, gap: 6 }]}>
-                        {sense.grammar ? <Text style={s.tagBadge}>{sense.grammar.replace(/^\[|\]$/g, '')}</Text> : null}
-                        {sense.labels ? <Text style={s.tagBadge}>{sense.labels.replace(/^\(|\)$/g, '')}</Text> : null}
+                        {sense.grammar ? <Text style={[s.tagBadge, { fontSize: 11 * fs }]}>{sense.grammar.replace(/^\[|\]$/g, '')}</Text> : null}
+                        {sense.labels ? <Text style={[s.tagBadge, { fontSize: 11 * fs }]}>{sense.labels.replace(/^\(|\)$/g, '')}</Text> : null}
                     </View>
                 ) : null}
                 {shown.map((ex, j) => (
-                    <TappableText key={j} style={s.example} ignore={headword}>{ex.text}</TappableText>
+                    <TappableText key={j} style={[s.example, { fontSize: 13 * fs }]} ignore={headword}>{ex.text}</TappableText>
                 ))}
                 {examples.length > 2 && (
                     <Pressable onPress={() => setMore((v) => !v)}>

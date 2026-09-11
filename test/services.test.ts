@@ -348,9 +348,9 @@ describe('user db', () => {
     });
     it('settings defaults + roundtrip', async () => {
         const user = await makeUser();
-        expect(await getSetting(user, 'pref_dialect')).toBe('uk');
-        await setSetting(user, 'pref_dialect', 'us');
         expect(await getSetting(user, 'pref_dialect')).toBe('us');
+        await setSetting(user, 'pref_dialect', 'uk');
+        expect(await getSetting(user, 'pref_dialect')).toBe('uk');
     });
     it('nextDueAt reports how many cards share the next due date, not just the date', async () => {
         const user = await makeUser();

@@ -13,6 +13,7 @@ import { router } from 'expo-router';
 import { maskHeadword } from '@/services/srs';
 import { stopRepeat } from '@/services/audio';
 import { useReviewSession } from '@/stores/review-session';
+import { useApp, FONT_MULT } from '@/stores/app';
 import { usePalette } from '@/theme/use-palette';
 import type { Semantic } from '@/theme/tokens';
 
@@ -28,7 +29,8 @@ function formatNext(iso: string): string {
 
 export default function ReviewSessionScreen() {
     const t = usePalette();
-    const s = useMemo(() => makeStyles(t), [t]);
+    const fs = FONT_MULT[useApp((st) => st.fontScale)];
+    const s = useMemo(() => makeStyles(t, fs), [t, fs]);
 
     const mode = useReviewSession((st) => st.mode);
     const phase = useReviewSession((st) => st.phase);
@@ -232,7 +234,7 @@ export default function ReviewSessionScreen() {
     );
 }
 
-function makeStyles(t: Semantic) {
+function makeStyles(t: Semantic, fs: number) {
     return StyleSheet.create({
         root: { flex: 1, backgroundColor: t.surface.canvas },
         cardArea: { flex: 1, justifyContent: 'center' },
@@ -254,12 +256,12 @@ function makeStyles(t: Semantic) {
             borderWidth: StyleSheet.hairlineWidth, borderColor: t.border.default,
             alignItems: 'center', justifyContent: 'center',
         },
-        cardWord: { fontSize: 30, fontWeight: '600', textAlign: 'center', color: t.text.primary },
-        cardIpa: { fontSize: 15, color: t.text.secondary, marginTop: 6 },
-        cardDef: { fontSize: 16, lineHeight: 23, textAlign: 'center', color: t.text.primary },
-        cardDictDef: { fontSize: 13, color: t.text.secondary, textAlign: 'center', marginTop: 8 },
-        cardExample: { fontSize: 13, color: t.text.secondary, fontStyle: 'italic', textAlign: 'center', marginTop: 10 },
-        cardForms: { fontSize: 12, color: t.text.tertiary, marginTop: 12 },
+        cardWord: { fontSize: 30 * fs, fontWeight: '600', textAlign: 'center', color: t.text.primary },
+        cardIpa: { fontSize: 15 * fs, color: t.text.secondary, marginTop: 6 },
+        cardDef: { fontSize: 16 * fs, lineHeight: 23 * fs, textAlign: 'center', color: t.text.primary },
+        cardDictDef: { fontSize: 13 * fs, color: t.text.secondary, textAlign: 'center', marginTop: 8 },
+        cardExample: { fontSize: 13 * fs, color: t.text.secondary, fontStyle: 'italic', textAlign: 'center', marginTop: 10 },
+        cardForms: { fontSize: 12 * fs, color: t.text.tertiary, marginTop: 12 },
         // 2×2, mỗi ô vuông ~38% bề rộng thẻ: đủ nhận ra vật trong ảnh mà thẻ
         // không thành gallery; 4 ảnh cũng là số lượng prefetch của chế độ này.
         imgGrid: {
