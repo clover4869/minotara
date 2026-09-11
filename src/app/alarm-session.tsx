@@ -16,14 +16,14 @@
  */
 import { useEffect, useMemo, useRef } from 'react';
 import {
-    ActivityIndicator, BackHandler, Pressable, ScrollView, StyleSheet, Text, Vibration, View,
+    ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, Vibration, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Image as ExpoImage } from 'expo-image';
 import { router } from 'expo-router';
 
 import { openUser } from '@/db/open';
 import { getAlarm } from '@/db/user';
+import { QuizCard } from '@/components/quiz-card';
 import { useAlarmSession } from '@/stores/alarm-session';
 import { useApp, FONT_MULT } from '@/stores/app';
 import { usePalette } from '@/theme/use-palette';
@@ -113,7 +113,7 @@ export default function AlarmSessionScreen() {
             {loading || !card ? (
                 <View style={s.center}><ActivityIndicator size="large" color={t.accent.bg} /></View>
             ) : kind === 'quiz' ? (
-                <QuizBody s={s} t={t} question={question} picked={picked} onPick={(k) => { Vibration.vibrate(10); pick(k); }} />
+                <QuizCard question={question} picked={picked} onPick={(k) => { Vibration.vibrate(10); pick(k); }} />
             ) : (
                 <ReviewBody
                     s={s} card={card} flipped={flipped}
@@ -126,60 +126,6 @@ export default function AlarmSessionScreen() {
 }
 
 type Styles = ReturnType<typeof makeStyles>;
-
-function QuizBody({ s, t, question, picked, onPick }: {
-    s: Styles; t: Semantic;
-    question: ReturnType<typeof useAlarmSession.getState>['question'];
-    picked: string | null;
-    onPick: (key: string) => void;
-}) {
-    if (!question) return <View style={s.center}><ActivityIndicator color={t.accent.bg} /></View>;
-    return (
-        <ScrollView contentContainerStyle={s.quizScroll}>
-            <Text style={s.quizWord}>{question.headword}</Text>
-            {question.ipa ? <Text style={s.quizIpa}>{question.ipa}</Text> : null}
-
-            {/* Hàng ảnh giữ chiều cao cố định kể cả lúc chưa tải xong: ảnh về
-                muộn mà làm cả cụm đáp án tụt xuống thì ngón tay đang chạm sẽ
-                trúng nhầm ô. */}
-            <View style={s.quizImages}>
-                {(question.images ?? []).map((u) => (
-                    <View key={u} style={s.quizImgCell}>
-                        <ExpoImage source={{ uri: u }} style={{ flex: 1 }} contentFit="cover" />
-                    </View>
-                ))}
-            </View>
-
-            <Text style={s.quizPrompt}>Nghĩa nào đúng?</Text>
-            {question.choices.map((c) => {
-                const chosen = picked === c.key;
-                const reveal = picked !== null;
-                // Lộ đáp án thì tô xanh ô ĐÚNG (dù không chọn nó) và tô đỏ ô
-                // vừa chọn nếu sai — người dùng cần thấy đáp án đúng là gì,
-                // không chỉ thấy mình sai.
-                const tone = !reveal ? null : c.correct ? 'right' : chosen ? 'wrong' : null;
-                return (
-                    <Pressable
-                        key={c.key}
-                        onPress={() => onPick(c.key)}
-                        disabled={reveal}
-                        style={[
-                            s.choice,
-                            tone === 'right' && { backgroundColor: t.status.successBg, borderColor: t.text.success },
-                            tone === 'wrong' && { backgroundColor: t.status.errorBg, borderColor: t.text.error },
-                        ]}
-                    >
-                        <Text style={[
-                            s.choiceText,
-                            tone === 'right' && { color: t.text.success },
-                            tone === 'wrong' && { color: t.text.error },
-                        ]}>{c.text}</Text>
-                    </Pressable>
-                );
-            })}
-        </ScrollView>
-    );
-}
 
 function ReviewBody({ s, card, flipped, onFlip, onAnswer }: {
     s: Styles;
@@ -230,19 +176,7 @@ function makeStyles(t: Semantic, fs: number) {
         progressFill: { height: 6, backgroundColor: t.accent.bg, borderRadius: 999 },
         counter: { color: t.text.secondary, fontSize: 13 },
 
-        quizScroll: { padding: 16, paddingBottom: 32, alignItems: 'stretch' },
-        quizWord: { fontSize: 34 * fs, fontWeight: '700', textAlign: 'center', color: t.text.primary },
-        quizIpa: { fontSize: 15 * fs, color: t.text.secondary, textAlign: 'center', marginTop: 4 },
-        quizImages: { flexDirection: 'row', gap: 8, justifyContent: 'center', height: 120, marginTop: 14 },
-        quizImgCell: { width: 120, height: 120, borderRadius: 12, overflow: 'hidden', backgroundColor: t.surface.raised },
-        quizPrompt: { fontSize: 13, color: t.text.tertiary, marginTop: 20, marginBottom: 10, textAlign: 'center' },
-        choice: {
-            borderWidth: 1, borderColor: t.border.default, borderRadius: 12,
-            paddingHorizontal: 16, paddingVertical: 14, marginBottom: 10,
-            backgroundColor: t.surface.raised,
-        },
-        choiceText: { fontSize: 15 * fs, lineHeight: 21 * fs, color: t.text.primary },
-
+        // Style của câu trắc nghiệm nằm trong components/quiz-card.tsx.
         cardArea: { flex: 1, justifyContent: 'center' },
         cardBox: {
             margin: 16, padding: 24, minHeight: 280, borderRadius: 16,

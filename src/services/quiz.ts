@@ -133,3 +133,70 @@ export async function pickDistractorDefinitions(
     if (opts.pos && out.length < opts.count) await harvest(null);
     return out;
 }
+
+/** Vừa đủ để dựng một câu hỏi — nhận hình này thay vì cả CardContent để
+ *  services/quiz.ts không phải phụ thuộc vào store. */
+export interface QuizSource {
+    entry_id: number;
+    headword: string;
+    pos: string | null;
+    ipa: string | null;
+    audio: string | null;
+    /** Mọi nghĩa TIẾNG ANH của mục từ. Đáp án đúng bốc ngẫu nhiên từ đây. */
+    dictSenses: string[];
+    /** Dùng khi mục từ không có nghĩa tiếng Anh nào dùng được. */
+    definition: string;
+}
+
+/**
+ * Dựng một câu trắc nghiệm hoàn chỉnh.
+ *
+ * Đáp án đúng bốc NGẪU NHIÊN trong các nghĩa tiếng Anh của từ: một từ nhiều
+ * nghĩa thì mỗi lần gặp lại được hỏi một nghĩa khác, thay vì học thuộc đúng
+ * một câu. Chỉ lấy nghĩa tiếng Anh — nghĩa tiếng Việt người dùng tự viết mà
+ * đứng cạnh ba định nghĩa tiếng Anh thì lộ đáp án chỉ vì khác ngôn ngữ.
+ *
+ * `sessionPool` là nghĩa của những thẻ KHÁC trong cùng phiên ôn. Ưu tiên lấy
+ * ở đây trước khi bốc từ từ điển: phân biệt hai từ mình đang học lẫn nhau mới
+ * là kỹ năng thật, còn bốn nghĩa lấy ngẫu nhiên từ 68k mục thì loại trừ được
+ * mà chẳng cần nhớ gì. Thiếu thì bù từ từ điển — phiên chỉ có 2-3 thẻ vẫn
+ * phải ra được câu hỏi 4 đáp án.
+ */
+export async function buildQuizQuestion(
+    dict: DbLike,
+    src: QuizSource,
+    opts: { sessionPool?: string[] } = {},
+    rng: () => number = Math.random,
+): Promise<QuizQuestion> {
+    const usable = src.dictSenses.filter(isUsableDefinition);
+    const correct = usable.length
+        ? usable[Math.floor(rng() * usable.length)]
+        : src.dictSenses[0] ?? src.definition;
+
+    const fromSession = shuffleIn(
+        (opts.sessionPool ?? []).filter(isUsableDefinition),
+        rng,
+    );
+    const need = CHOICE_COUNT - 1 - fromSession.length;
+    const fromDict = need > 0
+        ? await pickDistractorDefinitions(
+            dict, { excludeEntryId: src.entry_id, pos: src.pos, count: need }, rng)
+        : [];
+
+    return {
+        entry_id: src.entry_id,
+        headword: src.headword,
+        ipa: src.ipa,
+        audio: src.audio,
+        choices: assembleChoices(correct, [...fromSession, ...fromDict], rng),
+    };
+}
+
+function shuffleIn(arr: string[], rng: () => number): string[] {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a.slice(0, CHOICE_COUNT - 1);
+}

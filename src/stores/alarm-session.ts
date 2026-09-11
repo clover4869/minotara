@@ -20,7 +20,7 @@ import {
 } from '@/db/user';
 import { buildSession, buildAheadSession, grade, shuffle, type SrsState } from '@/services/srs';
 import { dailyWords } from '@/services/lookup';
-import { assembleChoices, pickDistractorDefinitions, type QuizQuestion } from '@/services/quiz';
+import { buildQuizQuestion, type QuizQuestion } from '@/services/quiz';
 import { searchImages, imageQueryFor } from '@/services/image-search';
 import { playRepeating, stopRepeat } from '@/services/audio';
 import { clearAlarmNotifications } from '@/services/alarm';
@@ -220,17 +220,9 @@ async function showNext(
     if (get().kind === 'review') {
         set({ card, question: null, loading: false });
     } else {
-        const dict = await openDictionary();
-        const distractors = await pickDistractorDefinitions(dict, {
-            excludeEntryId: item.entry_id, pos: card.pos, count: 3,
-        });
-        const q: QuizQuestion = {
-            entry_id: item.entry_id,
-            headword: card.headword,
-            ipa: card.ipa,
-            audio: card.audio,
-            choices: assembleChoices(card.definition, distractors),
-        };
+        // Không truyền sessionPool: báo thức mặc định hỏi 1 câu, nên "các thẻ
+        // khác trong phiên" gần như luôn rỗng. Mồi nhử lấy thẳng từ từ điển.
+        const q = await buildQuizQuestion(await openDictionary(), card);
         set({ card, question: q, loading: false });
         loadQuizImages(q, card, get, set);
     }

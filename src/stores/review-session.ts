@@ -7,10 +7,14 @@
  */
 import { create } from 'zustand';
 import { openDictionary, openUser } from '@/db/open';
-import { loadSrsStates, persistGrades, nextDueAt, type NextDue, type SavedWord } from '@/db/user';
+import { loadSrsStates, persistGrades, nextDueAt, getSetting, setSetting, type NextDue, type SavedWord } from '@/db/user';
 import { SessionQueue, shuffle, type SrsState } from '@/services/srs';
 import { formsOfEntry } from '@/services/lookup';
-import { searchImages } from '@/services/image-search';
+import { searchImages, imageQueryFor } from '@/services/image-search';
+import { buildQuizQuestion, type QuizQuestion } from '@/services/quiz';
+
+/** Số ảnh hiện trong câu trắc nghiệm — khớp với báo thức. */
+const QUIZ_IMAGES = 2;
 import { parseEntryData } from '@/db/types';
 import { playRepeating, stopRepeat, playUrl } from '@/services/audio';
 import { useApp } from '@/stores/app';
@@ -22,6 +26,16 @@ import { useApp } from '@/stores/app';
  * (thị giác), dùng lại luôn cache ảnh của tab Ảnh.
  */
 export type ReviewMode = 'word2meaning' | 'meaning2word' | 'image2word';
+
+/**
+ * Trục thứ hai, độc lập với `mode`: thẻ lật hay trắc nghiệm.
+ *
+ * Ba giá trị của `ReviewMode` đều là THẺ LẬT, chỉ khác chiều hỏi. Trắc nghiệm
+ * không phải chiều hỏi thứ tư mà là một cách tương tác khác — nhét nó thành
+ * giá trị thứ tư của ReviewMode là nói rằng nó thay thế được cho ba cái kia,
+ * trong khi `mode` không còn nghĩa gì khi đang làm trắc nghiệm.
+ */
+export type ReviewKind = 'card' | 'quiz';
 export type SessionPhase = 'card' | 'done';
 
 export interface CardContent {
@@ -37,6 +51,16 @@ export interface CardContent {
     images?: string[];
     isUserMeaning: boolean;
     dictDefinition: string | null;
+    /**
+     * MỌI nghĩa tiếng Anh của mục từ. Trắc nghiệm bốc ngẫu nhiên một nghĩa
+     * trong đây làm đáp án đúng, nên một từ nhiều nghĩa được hỏi mỗi lần một
+     * nghĩa khác chứ không lặp lại mãi nghĩa đầu.
+     *
+     * Cố ý KHÔNG dùng `definition`: khi người dùng đã tự viết nghĩa tiếng
+     * Việt thì `definition` là câu tiếng Việt đó, còn ba mồi nhử là định
+     * nghĩa tiếng Anh — đáp án đúng lộ ra chỉ vì khác ngôn ngữ.
+     */
+    dictSenses: string[];
     example: string | null;
     forms: string;
 }
@@ -44,6 +68,12 @@ export interface CardContent {
 interface ReviewSessionState {
     mode: ReviewMode;
     setMode(m: ReviewMode): void;
+    kind: ReviewKind;
+    setKind(k: ReviewKind): void;
+    /** Đọc lại lựa chọn đã lưu. Trước đây hai giá trị này chỉ nằm trong bộ
+     *  nhớ nên mở lại app là về mặc định — chọn xong rồi mất là thứ người dùng
+     *  phải làm lại mỗi ngày. */
+    loadPrefs(): Promise<void>;
 
     /** Latest full SrsState snapshot, kept fresh by (tabs)/review.tsx — retryMissed() needs it to look up missed cards' current state. */
     allStates: SrsState[];
@@ -61,8 +91,16 @@ interface ReviewSessionState {
     nextDue: NextDue | null;
     cache: Map<number, CardContent>;
 
+    /** Câu trắc nghiệm của thẻ đang hỏi. null khi đang ở kiểu thẻ lật. */
+    question: QuizQuestion | null;
+    /** key đáp án đã chọn — có giá trị nghĩa là đã lộ đáp án, chờ sang câu kế. */
+    picked: string | null;
+
     begin(cards: SrsState[], skipGrade?: boolean): Promise<void>;
     flip(): void;
+    /** Chọn một đáp án. CHỈ ghi lựa chọn để lộ đáp án — không chấm, không sang
+     *  thẻ kế. Màn hình chờ cho người dùng đọc xong rồi tự gọi answer(). */
+    pick(key: string): void;
     answer(correct: boolean): Promise<void>;
     exitSession(): Promise<void>;
     retryMissed(): Promise<void>;
@@ -94,6 +132,7 @@ export async function loadCard(cache: Map<number, CardContent>, entryId: number,
         definition: saved?.user_meaning ?? firstSense?.definition ?? '(chưa có nghĩa)',
         isUserMeaning: !!saved?.user_meaning,
         dictDefinition: saved?.user_meaning ? firstSense?.definition ?? null : null,
+        dictSenses: data.senses.map((x) => x.definition).filter((d): d is string => !!d),
         example: firstSense?.examples[0]?.text ?? null,
         forms,
     };
@@ -103,7 +142,24 @@ export async function loadCard(cache: Map<number, CardContent>, entryId: number,
 
 export const useReviewSession = create<ReviewSessionState>((set, get) => ({
     mode: 'word2meaning',
-    setMode: (m) => set({ mode: m }),
+    setMode: (m) => {
+        set({ mode: m });
+        openUser().then((db) => setSetting(db, 'review_mode', m)).catch(() => {});
+    },
+    kind: 'card',
+    setKind: (k) => {
+        set({ kind: k });
+        openUser().then((db) => setSetting(db, 'review_kind', k)).catch(() => {});
+    },
+    async loadPrefs() {
+        const db = await openUser();
+        const m = await getSetting(db, 'review_mode');
+        const k = await getSetting(db, 'review_kind');
+        set({
+            mode: m === 'meaning2word' || m === 'image2word' ? m : 'word2meaning',
+            kind: k === 'quiz' ? 'quiz' : 'card',
+        });
+    },
 
     allStates: [],
     setAllStates: (s) => set({ allStates: s }),
@@ -116,6 +172,8 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
     answered: 0,
     nextDue: null,
     cache: new Map(),
+    question: null,
+    picked: null,
 
     async begin(cards, skipGrade = false) {
         if (!cards.length) return;
@@ -123,8 +181,20 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
         const q = skipGrade
             ? new SessionQueue(shuffle(cards), new Date(), Math.random, { reinforcement: true })
             : new SessionQueue(shuffle(cards), new Date());
-        set({ queue: q, phase: 'card', noGrade: skipGrade, flipped: false, card: null, answered: 0 });
+        set({
+            queue: q, phase: 'card', noGrade: skipGrade, flipped: false, card: null,
+            answered: 0, question: null, picked: null,
+        });
+        // Nghĩa của mọi thẻ trong phiên, lấy MỘT truy vấn: mồi nhử trắc nghiệm
+        // ưu tiên các thẻ khác trong cùng phiên. Nạp từng thẻ khi cần thì ba
+        // câu đầu chưa có thẻ nào khác được nạp, mồi nhử rơi hết về từ điển.
+        sessionDefs = get().kind === 'quiz' ? await loadSessionDefs(cards) : [];
         await showCurrent(q, get, set);
+    },
+
+    pick(key) {
+        if (!get().question || get().picked) return; // chọn rồi thì bấm nữa không đổi
+        set({ picked: key });
     },
 
     /**
@@ -169,8 +239,33 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
 
     clearCache() {
         get().cache.clear();
+        sessionDefs = [];
     },
 }));
+
+/**
+ * Nghĩa của mọi thẻ trong phiên, dùng làm mồi nhử trắc nghiệm. Sống ngoài
+ * zustand vì UI không vẽ theo nó.
+ *
+ * Một truy vấn cho cả phiên chứ không nạp lẻ từng thẻ: nạp lẻ thì ba câu đầu
+ * chưa có thẻ nào khác trong cache, mồi nhử rơi hết về từ điển — đúng lúc
+ * người dùng còn chưa vào nhịp thì bài lại dễ nhất.
+ */
+let sessionDefs: Array<{ entry_id: number; def: string }> = [];
+
+async function loadSessionDefs(cards: SrsState[]): Promise<Array<{ entry_id: number; def: string }>> {
+    if (!cards.length) return [];
+    const dict = await openDictionary();
+    const ids = cards.map((c) => c.entry_id);
+    const rows = await dict.getAllAsync<{ id: number; def: string | null }>(
+        `SELECT id, json_extract(data, '$.senses[0].definition') AS def
+         FROM entries WHERE id IN (${ids.map(() => '?').join(',')})`,
+        ...ids,
+    );
+    return rows
+        .filter((r): r is { id: number; def: string } => !!r.def)
+        .map((r) => ({ entry_id: r.id, def: r.def }));
+}
 
 async function showCurrent(
     q: SessionQueue,
@@ -178,18 +273,28 @@ async function showCurrent(
     set: (partial: Partial<ReviewSessionState>) => void,
 ): Promise<void> {
     stopRepeat();
-    set({ flipped: false });
+    set({ flipped: false, picked: null });
     const cur = q.current;
     if (!cur) {
         const { noGrade } = get();
         if (!noGrade) await persistGrades(await openUser(), q.graded);
         const nextDue = await nextDueAt(await openUser());
-        set({ nextDue, phase: 'done', card: null });
+        set({ nextDue, phase: 'done', card: null, question: null });
         return;
     }
     const dialect = useApp.getState().prefDialect;
     const c = await loadCard(get().cache, cur.entry_id, dialect);
     set({ card: c });
+
+    if (get().kind === 'quiz') {
+        const pool = sessionDefs.filter((d) => d.entry_id !== c.entry_id).map((d) => d.def);
+        const question = await buildQuizQuestion(await openDictionary(), c, { sessionPool: pool });
+        // Chỉ gán nếu người dùng còn đứng ở đúng thẻ đó — dựng câu hỏi có
+        // await, trong lúc đó họ có thể đã trả lời xong thẻ trước.
+        if (get().card?.entry_id === c.entry_id) set({ question });
+    } else {
+        set({ question: null });
+    }
     const { autoplay } = useApp.getState();
     // Bật autoplay là phát, mọi chế độ, không chờ lật thẻ. Kể cả
     // meaning2word/image2word — ở đó phát âm thanh lên là hé đáp án, nhưng
@@ -202,7 +307,7 @@ async function showCurrent(
     // cả vào cache phiên nên thẻ bị hỏi lại (từ mới phải đúng 2 lần) không
     // tải lại; thất bại ghi [] — một lần thử mỗi phiên, không dội Bing theo
     // mỗi lượt thẻ quay về.
-    if (get().mode === 'image2word' && c.images === undefined) {
+    if (get().mode === 'image2word' && get().kind === 'card' && c.images === undefined) {
         (async () => {
             let imgs: string[] = [];
             try {
@@ -212,6 +317,31 @@ async function showCurrent(
             const withImgs = { ...c, images: imgs };
             get().cache.set(withImgs.entry_id, withImgs);
             if (get().card?.entry_id === withImgs.entry_id) set({ card: withImgs });
+        })();
+    }
+
+    // Ảnh cho câu trắc nghiệm. Cũng tải ngoài luồng, cùng lý do như trên.
+    //
+    // Một phiên tới 40 thẻ nên đây là đường gọi ảnh dày nhất trong cả app —
+    // chống đỡ nằm ở ba chỗ: cache 30 ngày trong image_cache, giãn nhịp
+    // 700ms/request trong image-search.ts, và ghi kết quả vào cache phiên
+    // dưới đây nên thẻ bị hỏi lại (từ mới phải đúng 2 lần) không tải lại.
+    if (get().kind === 'quiz' && c.images === undefined) {
+        // Tra ảnh theo ĐÚNG nghĩa đang được hỏi, không phải nghĩa đầu: đáp án
+        // đúng bốc ngẫu nhiên trong các nghĩa, nên lấy nghĩa đầu thì ảnh minh
+        // hoạ một nghĩa khác của cùng từ — không sai hẳn, nhưng lệch với câu
+        // hỏi đúng lúc ảnh đang là chỗ dựa để nhớ.
+        const asked = get().question?.choices.find((x) => x.correct)?.text ?? c.dictSenses[0] ?? null;
+        (async () => {
+            let imgs: string[] = [];
+            try {
+                const r = await searchImages(await openUser(), imageQueryFor(c.headword, asked));
+                if (!r.failed) imgs = r.results.slice(0, QUIZ_IMAGES).map((x) => x.thumbnail);
+            } catch { /* giữ [] — làm bài bằng chữ, bốn nghĩa đã đủ */ }
+            get().cache.set(c.entry_id, { ...c, images: imgs });
+            if (get().question?.entry_id === c.entry_id) {
+                set({ question: { ...get().question!, images: imgs } });
+            }
         })();
     }
 }

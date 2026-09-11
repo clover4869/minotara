@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import type { DbLike } from '../src/db/types';
 import {
-    assembleChoices, isUsableDefinition, pickDistractorDefinitions, CHOICE_COUNT,
+    assembleChoices, isUsableDefinition, pickDistractorDefinitions, buildQuizQuestion,
+    CHOICE_COUNT, type QuizSource,
 } from '../src/services/quiz';
 
 function wrap(db: Database.Database): DbLike {
@@ -151,5 +152,116 @@ describe('pickDistractorDefinitions', () => {
         const d = await pickDistractorDefinitions(wrap(db), { excludeEntryId: 99, pos: 'determiner', count: 3 });
         expect(d).toHaveLength(3);
         expect(d).toContain('nghia xac dinh duy nhat'); // vẫn ưu tiên đúng từ loại trước
+    });
+});
+
+describe('buildQuizQuestion', () => {
+    function dictOf(n = 60): DbLike {
+        const db = new Database(':memory:');
+        db.exec('CREATE TABLE entries (id INTEGER PRIMARY KEY, headword TEXT, pos TEXT, data TEXT);');
+        const ins = db.prepare('INSERT INTO entries (id, headword, pos, data) VALUES (?,?,?,?)');
+        for (let i = 1; i <= n; i++) {
+            ins.run(i, `w${i}`, 'noun', JSON.stringify({
+                senses: [{ definition: `nghia tu dien so ${i} du dai de dung` }],
+            }));
+        }
+        return wrap(db);
+    }
+
+    const src = (over: Partial<QuizSource> = {}): QuizSource => ({
+        entry_id: 999,
+        headword: 'apple',
+        pos: 'noun',
+        ipa: '/ˈæpl/',
+        audio: 'https://a/x.mp3',
+        dictSenses: ['a round fruit with shiny red or green skin'],
+        definition: 'a round fruit with shiny red or green skin',
+        ...over,
+    });
+
+    it('ra 4 đáp án với đúng một đáp án đúng, mang theo từ/ipa/audio', async () => {
+        const q = await buildQuizQuestion(dictOf(), src());
+        expect(q.choices).toHaveLength(CHOICE_COUNT);
+        expect(q.choices.filter((c) => c.correct)).toHaveLength(1);
+        expect(q.headword).toBe('apple');
+        expect(q.audio).toBe('https://a/x.mp3');
+        expect(q.entry_id).toBe(999);
+    });
+
+    /**
+     * Đây là lý do QuizSource mang `dictSenses` chứ không mang `definition`:
+     * người dùng tự viết nghĩa tiếng Việt thì đáp án đúng là câu tiếng Việt
+     * đứng giữa ba định nghĩa tiếng Anh — lộ đáp án chỉ vì khác ngôn ngữ,
+     * không cần nhớ gì cũng chọn trúng.
+     */
+    it('KHÔNG bao giờ lấy nghĩa tiếng Việt người dùng tự viết làm đáp án', async () => {
+        const q = await buildQuizQuestion(dictOf(), src({
+            definition: 'quả táo — nghĩa tôi tự ghi',
+            dictSenses: ['a round fruit with shiny red or green skin'],
+        }));
+        const right = q.choices.find((c) => c.correct)!;
+        expect(right.text).toBe('a round fruit with shiny red or green skin');
+        expect(q.choices.every((c) => !c.text.includes('tôi tự ghi'))).toBe(true);
+    });
+
+    it('bốc ngẫu nhiên trong các nghĩa tiếng Anh — từ nhiều nghĩa không lặp mãi nghĩa đầu', async () => {
+        const many = src({
+            dictSenses: [
+                'nghia thu nhat du dai de dung lam dap an',
+                'nghia thu hai du dai de dung lam dap an',
+                'nghia thu ba du dai de dung lam dap an',
+            ],
+        });
+        const seen = new Set<string>();
+        for (let i = 0; i < 25; i++) {
+            const q = await buildQuizQuestion(dictOf(), many);
+            seen.add(q.choices.find((c) => c.correct)!.text);
+        }
+        expect(seen.size).toBeGreaterThan(1);
+    });
+
+    it('bỏ qua nghĩa quá ngắn/dài khi chọn đáp án đúng', async () => {
+        const q = await buildQuizQuestion(dictOf(), src({
+            dictSenses: ['a bird', 'x'.repeat(300), 'nghia duy nhat dung duoc o day'],
+        }));
+        expect(q.choices.find((c) => c.correct)!.text).toBe('nghia duy nhat dung duoc o day');
+    });
+
+    it('ưu tiên mồi nhử từ các thẻ cùng phiên, chỉ bù từ từ điển khi thiếu', async () => {
+        const pool = [
+            'nghia cua the cung phien so mot',
+            'nghia cua the cung phien so hai',
+            'nghia cua the cung phien so ba',
+        ];
+        const q = await buildQuizQuestion(dictOf(), src(), { sessionPool: pool });
+        const wrong = q.choices.filter((c) => !c.correct).map((c) => c.text);
+        expect(wrong).toHaveLength(3);
+        // đủ 3 mồi nhử từ phiên thì không cần đụng tới từ điển
+        expect(wrong.every((t) => pool.includes(t))).toBe(true);
+    });
+
+    it('phiên chỉ có 1 thẻ khác thì bù từ từ điển cho đủ 4 đáp án', async () => {
+        const q = await buildQuizQuestion(dictOf(), src(), {
+            sessionPool: ['nghia cua the cung phien duy nhat'],
+        });
+        expect(q.choices).toHaveLength(CHOICE_COUNT);
+        const wrong = q.choices.filter((c) => !c.correct).map((c) => c.text);
+        expect(wrong).toContain('nghia cua the cung phien duy nhat');
+        expect(wrong.some((t) => t.startsWith('nghia tu dien'))).toBe(true);
+    });
+
+    it('bỏ qua mục trong phiên có nghĩa không dùng được', async () => {
+        const q = await buildQuizQuestion(dictOf(), src(), { sessionPool: ['a bird', ''] });
+        expect(q.choices).toHaveLength(CHOICE_COUNT);
+        expect(q.choices.every((c) => c.text !== 'a bird')).toBe(true);
+    });
+
+    /** Từ điển rỗng + phiên rỗng: vẫn phải ra câu trả lời được, không ném lỗi. */
+    it('không có mồi nhử nào thì vẫn ra câu hỏi, không ném lỗi', async () => {
+        const db = new Database(':memory:');
+        db.exec('CREATE TABLE entries (id INTEGER PRIMARY KEY, headword TEXT, pos TEXT, data TEXT);');
+        const q = await buildQuizQuestion(wrap(db), src());
+        expect(q.choices).toHaveLength(1);
+        expect(q.choices[0].correct).toBe(true);
     });
 });

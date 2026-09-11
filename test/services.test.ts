@@ -7,7 +7,7 @@ import { matchImport } from '../src/services/import-matcher';
 import { grade, buildSession, buildAheadSession, dueBoxCounts, SessionQueue, boxFromStability, previewIntervals, maskHeadword, type SrsState } from '../src/services/srs';
 import { migrateUserDb, saveWord, savedStats, getSetting, setSetting, nextDueAt, getCachedImages, cacheImages } from '../src/db/user';
 import { getViMeanings, meaningsForPos, meaningsOtherPos, normalizeViPos } from '../src/services/vi-meaning';
-import { searchImages, parseBingImages, IMAGE_CACHE_TTL_MS } from '../src/services/image-search';
+import { searchImages, parseBingImages, IMAGE_CACHE_TTL_MS, setImageRequestGap } from '../src/services/image-search';
 import { splitWords, normalizeWord } from '../src/services/tokenize';
 
 /** better-sqlite3 wrapped to look like expo-sqlite's async API. */
@@ -441,6 +441,10 @@ describe('image-search (Bing)', () => {
         '<html>' + Array.from({ length: n }, (_, i) => `<a${item(i, word)}></a>`).join('') + '</html>';
     const ok = (body: string) => ({ ok: true, text: async () => body }) as any;
 
+    // Khoảng giãn nhịp thật là 700ms/request. Giữ nguyên trong test thì cả bộ
+    // tốn thêm ~6 giây chờ suông; cơ chế giãn nhịp có bài kiểm riêng bên dưới.
+    beforeAll(() => setImageRequestGap(0));
+
     it('bóc được murl/turl/t, suy ra host nguồn, rồi phục vụ từ cache lần sau', async () => {
         const user = await makeUser();
         let calls = 0;
@@ -536,6 +540,43 @@ describe('image-search (Bing)', () => {
      * mọi mạng — đo được: UA nền tảng thật 12/12, UA desktop 11/12 và đó là đo
      * từ Linux, nơi UA desktop còn khớp nền tảng.
      */
+    /**
+     * Chế độ trắc nghiệm hỏi tới 40 thẻ một phiên, mỗi thẻ một câu kèm ảnh.
+     * Không giãn nhịp thì đó là 40 request Bing liên tiếp — đúng cách để dính
+     * lại kiểu chặn "trả đủ số lượng nhưng nội dung lạc đề".
+     */
+    it('giãn nhịp các lần gọi mạng, kể cả khi bị gọi dồn cùng lúc', async () => {
+        const user = await makeUser();
+        setImageRequestGap(60);
+        try {
+            const at: number[] = [];
+            const spy = (async () => { at.push(Date.now()); return ok(page(9, 'cat')); }) as any;
+            // query khác nhau để không bị inflight gộp thành một request
+            await Promise.all(['aa', 'bb', 'cc'].map((q) => searchImages(user, q, 1, spy)));
+            expect(at).toHaveLength(3);
+            at.sort((x, y) => x - y);
+            // cho hụt 15ms vì setTimeout không bao giờ đúng tới từng milli
+            expect(at[1] - at[0]).toBeGreaterThanOrEqual(45);
+            expect(at[2] - at[1]).toBeGreaterThanOrEqual(45);
+        } finally {
+            setImageRequestGap(0);
+        }
+    });
+
+    it('đọc từ cache thì KHÔNG phải đứng chờ giãn nhịp', async () => {
+        const user = await makeUser();
+        await cacheImages(user, 'sancache', 1, JSON.stringify([{ image: 'i', thumbnail: 't', title: 'cat', source: '', sourceUrl: '', width: 0, height: 0 }]));
+        setImageRequestGap(5000); // giãn nhịp cực rộng — nếu cache phải chờ thì test này treo
+        try {
+            const t0 = Date.now();
+            const r = await searchImages(user, 'sancache', 1, (() => { throw new Error('không được gọi mạng'); }) as any);
+            expect(r.fromCache).toBe(true);
+            expect(Date.now() - t0).toBeLessThan(1000);
+        } finally {
+            setImageRequestGap(0);
+        }
+    });
+
     it('khai User-Agent đúng nền tảng đang chạy, không giả desktop', async () => {
         const user = await makeUser();
         let seen = '';

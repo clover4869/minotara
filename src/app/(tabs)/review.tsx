@@ -4,7 +4,7 @@
  * outside the tab bar — Task 22: the tab bar must not stay on screen during
  * an actual review, both to reclaim space and to remove an accidental exit.
  */
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
@@ -23,6 +23,9 @@ export default function ReviewStartScreen() {
     const s = useMemo(() => makeStyles(t), [t]);
     const mode = useReviewSession((st) => st.mode);
     const setMode = useReviewSession((st) => st.setMode);
+    const kind = useReviewSession((st) => st.kind);
+    const setKind = useReviewSession((st) => st.setKind);
+    const loadPrefs = useReviewSession((st) => st.loadPrefs);
     const setAllStates = useReviewSession((st) => st.setAllStates);
     const begin = useReviewSession((st) => st.begin);
 
@@ -46,6 +49,10 @@ export default function ReviewStartScreen() {
     // back from a finished/exited session pushed via router (the tab itself
     // never remounts, so a mount-only effect wouldn't catch that).
     useFocusEffect(useCallback(() => { refreshCounts(); }, [refreshCounts]));
+
+    // Lựa chọn kiểu bài / chiều hỏi được lưu xuống DB, đọc lại một lần khi mở
+    // tab — trước đây chúng chỉ nằm trong bộ nhớ nên mở lại app là về mặc định.
+    useEffect(() => { loadPrefs().catch(() => {}); }, [loadPrefs]);
 
     async function start() {
         await begin(buildSession(statesRef.current, new Date()));
@@ -79,13 +86,21 @@ export default function ReviewStartScreen() {
                 </>
             )}
             <View style={[s.rowGap, { marginTop: 14 }]}>
-                <ModeChip label="Từ → Nghĩa" active={mode === 'word2meaning'} onPress={() => setMode('word2meaning')} s={s} />
-                <ModeChip label="Nghĩa → Từ" active={mode === 'meaning2word'} onPress={() => setMode('meaning2word')} s={s} />
-                <ModeChip label="Ảnh → Từ" active={mode === 'image2word'} onPress={() => setMode('image2word')} s={s} />
+                <ModeChip label="Thẻ lật" active={kind === 'card'} onPress={() => setKind('card')} s={s} />
+                <ModeChip label="Trắc nghiệm" active={kind === 'quiz'} onPress={() => setKind('quiz')} s={s} />
             </View>
+            {/* Hàng chiều hỏi chỉ có nghĩa với thẻ lật. Để nó hiện lúc đang
+                chọn trắc nghiệm là mời người dùng bấm một thứ không tác dụng. */}
+            {kind === 'card' && (
+                <View style={[s.rowGap, { marginTop: 8 }]}>
+                    <ModeChip label="Từ → Nghĩa" active={mode === 'word2meaning'} onPress={() => setMode('word2meaning')} s={s} />
+                    <ModeChip label="Nghĩa → Từ" active={mode === 'meaning2word'} onPress={() => setMode('meaning2word')} s={s} />
+                    <ModeChip label="Ảnh → Từ" active={mode === 'image2word'} onPress={() => setMode('image2word')} s={s} />
+                </View>
+            )}
             {/* Chỉ giải thích chế độ ĐANG chọn: ba dòng cùng lúc là ba dòng để
                 đọc lướt rồi bỏ qua, một dòng đúng lúc thì người ta đọc. */}
-            <Text style={s.caption}>{MODE_HINT[mode]}</Text>
+            <Text style={s.caption}>{kind === 'quiz' ? QUIZ_HINT : MODE_HINT[mode]}</Text>
             <Pressable
                 style={[s.primaryBtn, !dueCount && { opacity: 0.4 }]}
                 disabled={!dueCount}
@@ -115,7 +130,9 @@ export default function ReviewStartScreen() {
                     sẽ quay lại vài lần.
                 </Text>
                 <Text style={s.guideLine}>
-                    Lật thẻ rồi chấm thật. Chấm “Chưa nhớ” không mất gì — thẻ chỉ quay lại sớm hơn.
+                    {kind === 'quiz'
+                        ? 'Chọn sai không mất gì — thẻ chỉ quay lại sớm hơn, và bạn thấy ngay nghĩa đúng.'
+                        : 'Lật thẻ rồi chấm thật. Chấm “Chưa nhớ” không mất gì — thẻ chỉ quay lại sớm hơn.'}
                 </Text>
             </View>
         </SafeAreaView>
@@ -127,6 +144,8 @@ const MODE_HINT: Record<ReviewMode, string> = {
     meaning2word: 'Hiện nghĩa trước, bạn nhớ lại từ.',
     image2word: 'Nhìn ảnh, bạn đoán từ.',
 };
+
+const QUIZ_HINT = 'Từ kèm ảnh, chọn nghĩa đúng trong bốn nghĩa. Không tự chấm.';
 
 type Styles = ReturnType<typeof makeStyles>;
 

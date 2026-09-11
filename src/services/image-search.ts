@@ -283,6 +283,43 @@ export interface ImageSearchOut {
  */
 const inflight = new Map<string, Promise<ImageSearchOut>>();
 
+/**
+ * Khoảng cách tối thiểu giữa hai lần GỌI MẠNG tới Bing.
+ *
+ * Tab "Ảnh" chỉ gọi khi người dùng mở một từ, nên nhịp tự nhiên đã thưa. Chế
+ * độ trắc nghiệm thì khác: một phiên ôn có tới 40 thẻ, mỗi thẻ một câu hỏi
+ * kèm ảnh — không giãn thì đó là 40 request liên tiếp, đúng cách để dính lại
+ * kiểu chặn "trả đủ số lượng nhưng lạc đề" đã mất cả buổi để tìm ra.
+ *
+ * 700ms là chọn theo nhịp người dùng: trả lời một câu trắc nghiệm mất vài
+ * giây, nên hàng đợi gần như không bao giờ có hơn một hai mục chờ, và tab
+ * "Ảnh" không bị kẹt sau việc tải nền. Đặt trên đường gọi mạng chứ không đặt
+ * ở chỗ gọi: cache đọc xong trả ngay, không phải đứng chờ ai.
+ */
+const MIN_REQUEST_GAP_MS = 700;
+let minRequestGapMs = MIN_REQUEST_GAP_MS;
+let lastRequestAt = 0;
+
+/** Đổi khoảng giãn nhịp. Test đặt 0 để khỏi ngủ thật — để nguyên 700ms thì
+ *  bộ test tốn thêm ~6 giây mỗi lần chạy, toàn bộ là chờ suông. */
+export function setImageRequestGap(ms: number): void {
+    minRequestGapMs = Math.max(0, ms);
+}
+/** Nối đuôi nhau — mỗi lời gọi chờ lời gọi trước rồi mới tính giãn nhịp của
+ *  mình, nên N request đồng thời ra thành N nhịp cách nhau đều. */
+let gate: Promise<void> = Promise.resolve();
+
+function throttleNetwork(): Promise<void> {
+    const mine = gate.then(async () => {
+        const wait = lastRequestAt + minRequestGapMs - Date.now();
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+        lastRequestAt = Date.now();
+    });
+    // Lỗi ở một mắt không được làm đứt cả chuỗi cho những mắt sau.
+    gate = mine.catch(() => {});
+    return mine;
+}
+
 export async function searchImages(
     userDb: DbLike,
     rawQuery: string,
@@ -330,6 +367,7 @@ async function doSearch(
 
     for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
         try {
+            await throttleNetwork();
             const res = await fetchWithTimeout(fetchImpl, url, {
                 headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'en-US,en;q=0.9' },
             });

@@ -12,10 +12,15 @@ import { router } from 'expo-router';
 
 import { maskHeadword } from '@/services/srs';
 import { stopRepeat } from '@/services/audio';
+import { QuizCard } from '@/components/quiz-card';
 import { useReviewSession } from '@/stores/review-session';
 import { useApp, FONT_MULT } from '@/stores/app';
 import { usePalette } from '@/theme/use-palette';
 import type { Semantic } from '@/theme/tokens';
+
+/** Nhịp chuyển câu ở chế độ trắc nghiệm — khớp với màn báo thức. */
+const QUIZ_ADVANCE_MS_CORRECT = 900;
+const QUIZ_ADVANCE_MS_WRONG = 2400;
 
 function formatNext(iso: string): string {
     const d = new Date(iso);
@@ -33,6 +38,10 @@ export default function ReviewSessionScreen() {
     const s = useMemo(() => makeStyles(t, fs), [t, fs]);
 
     const mode = useReviewSession((st) => st.mode);
+    const kind = useReviewSession((st) => st.kind);
+    const question = useReviewSession((st) => st.question);
+    const picked = useReviewSession((st) => st.picked);
+    const pick = useReviewSession((st) => st.pick);
     const phase = useReviewSession((st) => st.phase);
     const queue = useReviewSession((st) => st.queue);
     const card = useReviewSession((st) => st.card);
@@ -73,6 +82,22 @@ export default function ReviewSessionScreen() {
         Vibration.vibrate(12);
         await answerAction(correct);
     }
+
+    /*
+      Chọn đáp án xong thì lộ đáp án đúng một nhịp rồi mới chấm và sang thẻ kế.
+      Hẹn giờ đặt ở màn hình chứ không ở store: store không huỷ được timer khi
+      màn bị gỡ giữa chừng, còn ở đây cleanup của useEffect làm việc đó.
+
+      Chọn đúng thì đi nhanh; chọn SAI thì nán lại lâu hơn để đọc được đáp án
+      đúng vừa hiện ra — sai mà lướt qua ngay thì không học được gì.
+    */
+    useEffect(() => {
+        if (kind !== 'quiz' || !picked || !question) return;
+        const wasRight = !!question.choices.find((c) => c.key === picked)?.correct;
+        const id = setTimeout(() => { answerAction(wasRight); },
+            wasRight ? QUIZ_ADVANCE_MS_CORRECT : QUIZ_ADVANCE_MS_WRONG);
+        return () => clearTimeout(id);
+    }, [kind, picked, question, answerAction]);
 
     async function exitEarly() {
         await exitSession();
@@ -121,8 +146,7 @@ export default function ReviewSessionScreen() {
     }
 
     if (!card || !queue) return null;
-    const frontIsWord = mode === 'word2meaning';
-    const maskedEx = card.example ? maskHeadword(card.example, card.headword) : null;
+
     /*
       Không dùng `total - remaining` nữa. Thẻ mới phải trả lời đúng 2 lần mới
       tốt nghiệp, chưa đủ thì SessionQueue đẩy nó lại cuối hàng đợi — nên
@@ -135,6 +159,27 @@ export default function ReviewSessionScreen() {
       Không bao giờ tụt lùi, và chạm đúng 100% khi hàng đợi rỗng.
     */
     const progress = answered / Math.max(1, answered + queue.remaining);
+
+    // Trắc nghiệm dùng CHUNG thanh tiến độ, nút thoát và hàng đợi với thẻ lật —
+    // chỉ khác cách người dùng tạo ra giá trị đúng/sai. Toàn bộ FSRS, luật "từ
+    // mới phải đúng 2 lần", sai thì đẩy lại cuối hàng, màn kết quả: y như cũ.
+    if (kind === 'quiz') {
+        return (
+            <SafeAreaView style={s.root} edges={['top']}>
+                <View style={s.topBar}>
+                    <Pressable onPress={exitEarly} hitSlop={10}><Text style={s.exitIcon}>✕</Text></Pressable>
+                    <View style={s.progressTrack}>
+                        <View style={[s.progressFill, { width: `${progress * 100}%` }]} />
+                    </View>
+                    <Text style={s.secondaryText}>còn {queue.remaining}</Text>
+                </View>
+                <QuizCard question={question} picked={picked} onPick={(k) => { Vibration.vibrate(10); pick(k); }} />
+            </SafeAreaView>
+        );
+    }
+
+    const frontIsWord = mode === 'word2meaning';
+    const maskedEx = card.example ? maskHeadword(card.example, card.headword) : null;
 
     return (
         <SafeAreaView style={s.root} edges={['top']}>
