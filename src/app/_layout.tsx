@@ -2,49 +2,38 @@ import { useEffect, useState } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider, Stack, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Linking from 'expo-linking';
-import * as Notifications from 'expo-notifications';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { dictionaryReady, openUser, removeDictionaryFile, setOnDictionaryCorrupted } from '@/db/open';
 import { getAlarm } from '@/db/user';
-import { isAlarmNotification, rescheduleAlarm } from '@/services/alarm';
+import { rescheduleAlarm } from '@/services/alarm';
 import { useApp } from '@/stores/app';
 import { useEffectiveColorScheme } from '@/theme/use-palette';
 
 SplashScreen.preventAutoHideAsync();
 
-/**
- * Mặc định expo-notifications NUỐT thông báo khi app đang mở. Với báo thức
- * thì đó là hỏng: đang cầm máy lúc 7 giờ là đúng lúc cần thấy nó nhất.
- */
-Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-        shouldShowBanner: true,
-        shouldShowList: true,
-    }),
-});
-
-/** Chỉ mở màn làm bài cho ĐÚNG thông báo báo thức, không phải mọi thông báo. */
-function openAlarmIfOurs(response: Notifications.NotificationResponse | null): void {
-    if (!response) return;
-    if (!isAlarmNotification(response.notification.request.content.data)) return;
-    // navigate (không phải push): chạm hai lần vào thông báo không được xếp
-    // chồng hai màn làm bài lên nhau.
-    router.navigate('/alarm-session');
-}
-
 /** Must match `expo.plugins["expo-splash-screen"].backgroundColor` in app.json — same color on both sides of the native→JS splash handoff. */
 const SPLASH_BG = '#6CC6BD';
 
-/** spec: dict://word/{headword} → SCR-02 */
+/**
+ * spec: dict://word/{headword} → SCR-02
+ *
+ * `minotara://alarm-session` mở màn làm bài báo thức — bắn ra từ chính
+ * PendingIntent của AlarmRingingService (native), KHÔNG qua cơ chế
+ * notification-response của expo-notifications nữa (xem services/alarm.ts).
+ * navigate (không phải push): chạm hai lần vào thông báo không xếp chồng hai
+ * màn làm bài lên nhau.
+ */
 function handleDeepLink(url: string) {
     const parsed = Linking.parse(url);
     const host = parsed.hostname ?? '';
     const path = (parsed.path ?? '').replace(/^\//, '');
+    if (host === 'alarm-session' || path.startsWith('alarm-session')) {
+        router.navigate('/alarm-session');
+        return;
+    }
     let q: string | null = null;
     if (host === 'word') q = path.split('/')[0] || null;
     else if (path.startsWith('word/')) q = path.slice(5).split('/')[0] || null;
@@ -91,8 +80,6 @@ export default function RootLayout() {
             });
         });
 
-        const notifSub = Notifications.addNotificationResponseReceivedListener(openAlarmIfOurs);
-
         (async () => {
             try {
                 const ok = await dictionaryReady();
@@ -118,22 +105,18 @@ export default function RootLayout() {
 
         return () => {
             sub.remove();
-            notifSub.remove();
             setOnDictionaryCorrupted(null);
         };
     }, []);
 
     // The cold-start deep link needs a mounted <Stack> to navigate into — fire
     // it only once the navigator actually exists, not while BootScreen is up.
+    // Bao gồm cả trường hợp app bị tắt hẳn rồi báo thức mở app qua full-screen
+    // intent / chạm thông báo: đó cũng là một deep link (minotara://alarm-session),
+    // không cần đường riêng cho notification-response nữa.
     useEffect(() => {
         if (!booted) return;
         Linking.getInitialURL().then((u) => { if (u) handleDeepLink(u); });
-        // App bị tắt hẳn rồi người dùng chạm thông báo: lượt chạm đó không đi
-        // qua listener ở trên vì lúc nó nổ chưa có JS nào chạy. Hỏi lại lượt
-        // chạm đã mở app — cũng phải đợi <Stack> mounted mới điều hướng được.
-        Notifications.getLastNotificationResponseAsync()
-            .then(openAlarmIfOurs)
-            .catch(() => {});
     }, [booted]);
 
     return (

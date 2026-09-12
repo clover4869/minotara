@@ -1,0 +1,25 @@
+package expo.modules.alarmringing
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+
+/**
+ * Đặt lại lịch sau khi khởi động máy. Đọc thẳng SharedPreferences thay vì
+ * SQLite của app (user.db) — lúc BOOT_COMPLETED nổ, JS/React Native chưa chắc
+ * đã chạy, nên cấu hình được đồng bộ một bản rút gọn (giờ/phút/ngày) vào đây
+ * mỗi khi AlarmRingingModule.scheduleAlarm() chạy.
+ */
+class BootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        val prefs = context.getSharedPreferences(ALARM_PREFS_NAME, Context.MODE_PRIVATE)
+        val hour = prefs.getInt(PREF_HOUR, -1)
+        val minute = prefs.getInt(PREF_MINUTE, -1)
+        val days = prefs.getString(PREF_DAYS, null) ?: return
+        if (hour < 0 || minute < 0) return
+        days.split(",").mapNotNull { it.toIntOrNull() }.forEach { weekday ->
+            scheduleOne(context, hour, minute, weekday)
+        }
+    }
+}

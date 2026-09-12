@@ -21,9 +21,10 @@ import { rescheduleAlarm, cancelAlarm, requestAlarmPermission, hasAlarmPermissio
 import { UiIcon, Icons } from '@/components/dict-ui';
 import { usePalette } from '@/theme/use-palette';
 import type { Semantic } from '@/theme/tokens';
+import AlarmRinging from '../../modules/alarm-ringing';
 
-/** expo-notifications đánh số 1 = Chủ nhật. Mảng này xếp lại theo thói quen
- *  Việt Nam (tuần bắt đầu từ thứ hai) nhưng vẫn mang đúng số của thư viện. */
+/** `Calendar.DAY_OF_WEEK` phía native đánh số 1 = Chủ nhật. Mảng này xếp lại
+ *  theo thói quen Việt Nam (tuần bắt đầu từ thứ hai) nhưng vẫn mang đúng số. */
 const WEEKDAYS: { n: number; label: string }[] = [
     { n: 2, label: 'T2' }, { n: 3, label: 'T3' }, { n: 4, label: 'T4' },
     { n: 5, label: 'T5' }, { n: 6, label: 'T6' }, { n: 7, label: 'T7' },
@@ -44,6 +45,7 @@ export default function AlarmSettingsScreen() {
     const [cfg, setCfg] = useState<AlarmConfig>(ALARM_DEFAULT);
     const [granted, setGranted] = useState(true);
     const [scheduled, setScheduled] = useState(0);
+    const [batteryExempt, setBatteryExempt] = useState(true);
     const [events, setEvents] = useState<{ status: AlarmEventStatus; at: string }[]>([]);
 
     const refresh = useCallback(async () => {
@@ -52,6 +54,7 @@ export default function AlarmSettingsScreen() {
         setEvents(await recentAlarmEvents(db, 3));
         setGranted(await hasAlarmPermission());
         setScheduled(await scheduledCount());
+        if (Platform.OS === 'android') setBatteryExempt(AlarmRinging.isIgnoringBatteryOptimizations());
     }, []);
 
     useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
@@ -199,14 +202,34 @@ export default function AlarmSettingsScreen() {
 
                 <Text style={s.section}>Cần biết</Text>
                 <Text style={s.note}>
-                    Không chạm vào thông báo thì app không tự mở được — Android không cho app
-                    thường chiếm màn hình. Chuông cũng chỉ kêu vài giây theo giới hạn của hệ điều hành.
+                    Đến giờ, màn hình tự sáng và chuông kêu to hết cỡ dù máy đang để im lặng — kêu
+                    liên tục tới khi làm đúng đủ số câu, không tự tắt sau vài giây.
                 </Text>
                 {Platform.OS === 'android' ? (
-                    <Text style={s.note}>
-                        Máy Xiaomi/Oppo/Vivo/Samsung có thể chặn app chạy nền và nuốt luôn báo thức.
-                        Nếu sáng ra không thấy gì, vào phần tiết kiệm pin của máy và cho Minotara chạy nền.
-                    </Text>
+                    <>
+                        <Text style={s.note}>
+                            Máy Xiaomi/Oppo/Vivo/Samsung có thể vẫn chặn app chạy nền bất kể cài đặt
+                            dưới đây — đó là giới hạn của hãng máy, không sửa được từ trong app.
+                        </Text>
+                        {!batteryExempt && (
+                            <Pressable
+                                style={s.actionRow}
+                                onPress={() => AlarmRinging.openBatteryOptimizationSettings()}
+                            >
+                                <Text style={s.actionRowText}>Bỏ qua tối ưu hoá pin cho Minotara</Text>
+                                <UiIcon icon={Icons.ChevronRight} size={16} color={t.text.tertiary} />
+                            </Pressable>
+                        )}
+                        {Platform.Version >= 34 && (
+                            <Pressable
+                                style={s.actionRow}
+                                onPress={() => AlarmRinging.openFullScreenIntentSettings()}
+                            >
+                                <Text style={s.actionRowText}>Cho phép hiện toàn màn hình (Android 14+)</Text>
+                                <UiIcon icon={Icons.ChevronRight} size={16} color={t.text.tertiary} />
+                            </Pressable>
+                        )}
+                    </>
                 ) : null}
 
                 {cfg.enabled ? (
@@ -316,5 +339,12 @@ function makeStyles(t: Semantic) {
         targetTextOn: { color: t.text.onInverse, fontWeight: '700' },
 
         note: { fontSize: 12, color: t.text.tertiary, paddingHorizontal: 16, marginTop: 8, lineHeight: 18 },
+
+        actionRow: {
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            marginHorizontal: 16, marginTop: 10, padding: 12, borderRadius: 10,
+            borderWidth: StyleSheet.hairlineWidth, borderColor: t.border.default,
+        },
+        actionRowText: { fontSize: 13, color: t.text.primary, flex: 1 },
     });
 }

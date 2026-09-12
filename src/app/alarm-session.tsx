@@ -16,7 +16,7 @@
  */
 import { useEffect, useMemo, useRef } from 'react';
 import {
-    ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, Vibration, View,
+    ActivityIndicator, AppState, BackHandler, Pressable, StyleSheet, Text, Vibration, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -28,6 +28,7 @@ import { useAlarmSession } from '@/stores/alarm-session';
 import { useApp, FONT_MULT } from '@/stores/app';
 import { usePalette } from '@/theme/use-palette';
 import type { Semantic } from '@/theme/tokens';
+import AlarmRinging from '../../modules/alarm-ringing';
 
 /** Chọn đúng rồi thì đi tiếp nhanh; chọn sai thì nán lại đủ lâu để ĐỌC được
  *  đáp án đúng vừa lộ ra — sai mà lướt qua ngay thì không học được gì. */
@@ -67,6 +68,30 @@ export default function AlarmSessionScreen() {
     }, [begin]);
 
     useEffect(() => () => teardown(), [teardown]);
+
+    /*
+      Chuông thật (AlarmRingingService, native) kêu liên tục qua loa max —
+      phải tự im khi người dùng ĐANG ở đúng màn này để không đè lên audio phát
+      âm của câu hỏi, và phải kêu lại ngay nếu họ rời đi (khoá màn / qua app
+      khác) mà CHƯA làm xong — nếu không, mở app lên tắt tiếng rồi thoát ra là
+      qua mặt được cả tính năng.
+
+      `pauseAlarmRinging`/`resumeAlarmRinging` an toàn khi gọi thừa: native tự
+      no-op nếu không đang RINGING/PAUSED đúng chiều, và gọi sau khi đã
+      `stopAlarmRinging()` (làm xong bài) luôn no-op cho tới báo thức kế tiếp.
+    */
+    useEffect(() => {
+        AlarmRinging.setShowOverLockscreen(true);
+        AlarmRinging.pauseAlarmRinging();
+        const sub = AppState.addEventListener('change', (state) => {
+            if (state === 'active') AlarmRinging.pauseAlarmRinging();
+            else AlarmRinging.resumeAlarmRinging();
+        });
+        return () => {
+            sub.remove();
+            AlarmRinging.setShowOverLockscreen(false);
+        };
+    }, []);
 
     // Nuốt nút Back trong suốt phiên. Bỏ chặn ngay khi xong để nút Back lại
     // hoạt động bình thường ở màn kết quả.
