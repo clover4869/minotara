@@ -73,3 +73,15 @@ export async function clearAlarmNotifications(): Promise<void> {
 export async function scheduledCount(): Promise<number> {
     return AlarmRinging.getScheduledCount();
 }
+
+/** Tên hiển thị của âm báo thức đang chọn, để màn cấu hình hiện lên. */
+export function getAlarmSoundTitle(): string {
+    return AlarmRinging.getSelectedAlarmSoundTitle();
+}
+
+/** Mở picker âm thanh có sẵn của hệ thống. Trả về tên hiển thị mới (hoặc tên
+ *  cũ nếu người dùng bấm back thoát ra) — gọi lại getAlarmSoundTitle() không
+ *  cần thiết vì hàm native đã tự resolve và trả kèm luôn. */
+export async function pickAlarmSound(): Promise<string> {
+    return AlarmRinging.pickAlarmSound();
+}

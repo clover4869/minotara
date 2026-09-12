@@ -11,7 +11,11 @@ class AlarmRingingModule extends NativeModule<{}> {
     setShowOverLockscreen(_enabled: boolean): void {}
     isIgnoringBatteryOptimizations(): boolean { return true; }
     openBatteryOptimizationSettings(): void {}
+    canUseFullScreenIntent(): boolean { return true; }
     openFullScreenIntentSettings(): void {}
+
+    getSelectedAlarmSoundTitle(): string { return 'Mặc định hệ thống'; }
+    async pickAlarmSound(): Promise<string> { return 'Mặc định hệ thống'; }
 }
 
 export default registerWebModule(AlarmRingingModule, 'AlarmRingingModule');

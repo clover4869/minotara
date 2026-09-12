@@ -23,8 +23,16 @@ declare class AlarmRingingModule extends NativeModule<{}> {
     isIgnoringBatteryOptimizations(): boolean;
     /** Mở hộp thoại xin miễn tối ưu pin cho app — trực tiếp, không qua danh sách. */
     openBatteryOptimizationSettings(): void;
+    /** true nếu app ĐÃ được phép — bản dưới Android 14 luôn true (không có khái niệm xin phép). */
+    canUseFullScreenIntent(): boolean;
     /** Chỉ có tác dụng Android 14+; bản cũ hơn full-screen intent tự được phép. */
     openFullScreenIntentSettings(): void;
+
+    /** Tên hiển thị của âm báo thức đang chọn ("Mặc định hệ thống" nếu chưa chọn gì). */
+    getSelectedAlarmSoundTitle(): string;
+    /** Mở picker âm thanh có sẵn của hệ thống (lọc loại Alarm, ẩn tuỳ chọn Im lặng).
+     *  Trả về tên hiển thị của lựa chọn mới — hoặc lựa chọn cũ nếu người dùng bấm back. */
+    pickAlarmSound(): Promise<string>;
 }
 
 export default requireNativeModule<AlarmRingingModule>('AlarmRinging');

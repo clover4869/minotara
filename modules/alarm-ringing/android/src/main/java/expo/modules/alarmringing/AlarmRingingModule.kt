@@ -1,13 +1,17 @@
 package expo.modules.alarmringing
 
+import android.app.Activity
 import android.app.AlarmManager
 import android.app.KeyguardManager
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -20,6 +24,12 @@ import expo.modules.kotlin.modules.ModuleDefinition
  * expo-notifications không expose ra JS được.
  */
 class AlarmRingingModule : Module() {
+    // Giữ Promise của lần pickAlarmSound() đang chờ — activity picker của
+    // RingtoneManager trả kết quả qua onActivityResult (bất đồng bộ, callback
+    // riêng), không resolve được ngay trong thân AsyncFunction như các hàm
+    // khác trong file này.
+    private var pickSoundPromise: Promise? = null
+
     override fun definition() = ModuleDefinition {
         Name("AlarmRinging")
 
@@ -81,10 +91,77 @@ class AlarmRingingModule : Module() {
             }
         }
 
+        // Không lưu Uri trần trong JS — chỉ trả tên hiển thị, native tự quyết
+        // định URI thật (kể cả khi rỗng thì fallback đúng chuông mặc định của
+        // máy, có thể đổi giữa các bản Android khác nhau).
+        Function("getSelectedAlarmSoundTitle") {
+            appContext.reactContext?.let { resolveSoundTitle(it) } ?: "Mặc định hệ thống"
+        }
+
+        // Dùng picker CÓ SẴN của hệ thống (RingtoneManager) thay vì tự liệt kê
+        // danh sách âm thanh — vừa đỡ code, vừa tự động gồm cả nhạc chuông máy
+        // đã tải thêm. Tắt tuỳ chọn "Im lặng" vì mục đích của báo thức này là
+        // để KÊU, chọn im lặng ở đây chỉ tự làm hỏng tính năng của chính mình.
+        AsyncFunction("pickAlarmSound") { promise: Promise ->
+            val activity = appContext.currentActivity
+            val context = appContext.reactContext
+            if (activity == null || context == null) {
+                promise.reject("ERR_NO_ACTIVITY", "Không tìm thấy màn hình đang mở để chọn âm thanh", null)
+                return@AsyncFunction
+            }
+            pickSoundPromise = promise
+            val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                putExtra(
+                    RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI,
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+                )
+                putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, resolveSoundUri(context))
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Chọn âm báo thức")
+            }
+            runCatching { activity.startActivityForResult(intent, REQUEST_CODE_PICK_SOUND) }
+                .onFailure {
+                    pickSoundPromise = null
+                    promise.reject("ERR_PICKER", "Không mở được màn chọn âm thanh", it)
+                }
+        }
+
+        OnActivityResult { _, payload ->
+            if (payload.requestCode != REQUEST_CODE_PICK_SOUND) return@OnActivityResult
+            val promise = pickSoundPromise ?: return@OnActivityResult
+            pickSoundPromise = null
+            val context = appContext.reactContext
+            if (context == null) {
+                promise.resolve(null)
+                return@OnActivityResult
+            }
+            // resultCode khác RESULT_OK khi người dùng bấm back thoát màn chọn
+            // — giữ nguyên lựa chọn cũ, không ghi đè bằng giá trị rỗng.
+            if (payload.resultCode == Activity.RESULT_OK) {
+                val uri = payload.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+                saveSoundUri(context, uri)
+            }
+            promise.resolve(resolveSoundTitle(context))
+        }
+
         Function("isIgnoringBatteryOptimizations") {
             val context = appContext.reactContext ?: return@Function false
             val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
             pm.isIgnoringBatteryOptimizations(context.packageName)
+        }
+
+        // Trước bản 14 không có khái niệm "xin phép" — full-screen intent tự
+        // được phép, nên coi như true luôn để JS không phải tự nhớ so sánh SDK.
+        Function("canUseFullScreenIntent") {
+            val context = appContext.reactContext ?: return@Function true
+            if (Build.VERSION.SDK_INT >= 34) {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                nm.canUseFullScreenIntent()
+            } else {
+                true
+            }
         }
 
         // Cần Uri "package:<tên gói>" làm DATA của intent — expo-linking.sendIntent
@@ -121,7 +198,9 @@ internal const val PREF_HOUR = "hour"
 internal const val PREF_MINUTE = "minute"
 internal const val PREF_DAYS = "days"
 private const val PREF_COUNT = "scheduled_count"
+private const val PREF_SOUND_URI = "sound_uri"
 private const val REQUEST_CODE_BASE = 9000
+private const val REQUEST_CODE_PICK_SOUND = 9100
 
 private fun writePrefs(context: Context, hour: Int, minute: Int, weekdays: List<Int>) {
     context.getSharedPreferences(ALARM_PREFS_NAME, Context.MODE_PRIVATE).edit()
@@ -134,6 +213,32 @@ private fun writePrefs(context: Context, hour: Int, minute: Int, weekdays: List<
 
 private fun clearPrefs(context: Context) {
     context.getSharedPreferences(ALARM_PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply()
+}
+
+/** null = chưa chọn gì, dùng chuông mặc định của máy. Dùng chung cho module
+ *  này (đọc để pre-select trong picker) và AlarmRingingService (đọc để phát). */
+internal fun loadSoundUri(context: Context): Uri? {
+    val raw = context.getSharedPreferences(ALARM_PREFS_NAME, Context.MODE_PRIVATE).getString(PREF_SOUND_URI, null)
+    return raw?.let { runCatching { Uri.parse(it) }.getOrNull() }
+}
+
+private fun saveSoundUri(context: Context, uri: Uri?) {
+    context.getSharedPreferences(ALARM_PREFS_NAME, Context.MODE_PRIVATE).edit()
+        .putString(PREF_SOUND_URI, uri?.toString())
+        .apply()
+}
+
+/** URI thật sự đang dùng để phát: tuỳ chọn của người dùng, hoặc chuông mặc
+ *  định của máy nếu chưa chọn gì. Dùng chung cho việc hiện tên (resolveSoundTitle)
+ *  VÀ việc pre-select đúng ô trong picker hệ thống (kẻo picker luôn hiện "None"
+ *  trong khi màn cấu hình lại hiện đúng tên chuông đang phát). */
+private fun resolveSoundUri(context: Context): Uri? =
+    loadSoundUri(context) ?: RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM)
+
+private fun resolveSoundTitle(context: Context): String {
+    val uri = resolveSoundUri(context)
+    return uri?.let { runCatching { RingtoneManager.getRingtone(context, it)?.getTitle(context) }.getOrNull() }
+        ?: "Mặc định hệ thống"
 }
 
 private fun pendingIntentFor(context: Context, weekday: Int): PendingIntent {

@@ -17,7 +17,10 @@ import {
     getAlarm, setAlarm, recentAlarmEvents, ALARM_DEFAULT,
     type AlarmConfig, type AlarmEventStatus,
 } from '@/db/user';
-import { rescheduleAlarm, cancelAlarm, requestAlarmPermission, hasAlarmPermission, scheduledCount } from '@/services/alarm';
+import {
+    rescheduleAlarm, cancelAlarm, requestAlarmPermission, hasAlarmPermission, scheduledCount,
+    getAlarmSoundTitle, pickAlarmSound,
+} from '@/services/alarm';
 import { UiIcon, Icons } from '@/components/dict-ui';
 import { usePalette } from '@/theme/use-palette';
 import type { Semantic } from '@/theme/tokens';
@@ -46,16 +49,33 @@ export default function AlarmSettingsScreen() {
     const [granted, setGranted] = useState(true);
     const [scheduled, setScheduled] = useState(0);
     const [batteryExempt, setBatteryExempt] = useState(true);
+    const [fullScreenAllowed, setFullScreenAllowed] = useState(true);
+    const [soundTitle, setSoundTitle] = useState('Mặc định hệ thống');
     const [events, setEvents] = useState<{ status: AlarmEventStatus; at: string }[]>([]);
 
+    /**
+     * Đọc lại CẢ BA quyền mỗi lần màn này được focus (useFocusEffect bên
+     * dưới) — không chỉ lúc bật công tắc. Người dùng có thể tự tắt miễn tối
+     * ưu pin / quyền toàn màn hình ở Cài đặt hệ thống bất kỳ lúc nào sau đó,
+     * và lần quay lại màn này (kể cả do bị mở bởi chính báo thức) là dịp duy
+     * nhất để phát hiện việc đó.
+     */
     const refresh = useCallback(async () => {
         const db = await openUser();
         setCfg(await getAlarm(db));
         setEvents(await recentAlarmEvents(db, 3));
         setGranted(await hasAlarmPermission());
         setScheduled(await scheduledCount());
-        if (Platform.OS === 'android') setBatteryExempt(AlarmRinging.isIgnoringBatteryOptimizations());
+        if (Platform.OS === 'android') {
+            setBatteryExempt(AlarmRinging.isIgnoringBatteryOptimizations());
+            setFullScreenAllowed(AlarmRinging.canUseFullScreenIntent());
+            setSoundTitle(getAlarmSoundTitle());
+        }
     }, []);
+
+    async function pickSound() {
+        setSoundTitle(await pickAlarmSound());
+    }
 
     useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
 
@@ -89,6 +109,16 @@ export default function AlarmSettingsScreen() {
         }
     }
 
+    /**
+     * Xin đủ BA quyền ngay lúc bật, thay vì để người dùng tự phát hiện thiếu
+     * quyền vào sáng hôm sau khi báo thức không kêu/không hiện toàn màn hình.
+     * Đây là lúc người dùng đang chủ động muốn tính năng này chạy — chờ thêm
+     * chỉ để phát sinh thêm một lượt quay lại màn cấu hình không cần thiết.
+     *
+     * Show tuần tự (không Promise.all): mỗi Alert.alert xếp hàng tự nhiên ở
+     * Android, và mỗi cái cần một đích "Mở cài đặt" khác nhau nên không gộp
+     * thành một hộp thoại chung được.
+     */
     async function toggleEnabled(on: boolean) {
         if (!on) { await apply({ ...cfg, enabled: false }); return; }
         const ok = await requestAlarmPermission();
@@ -105,6 +135,33 @@ export default function AlarmSettingsScreen() {
             return;
         }
         await apply({ ...cfg, enabled: true });
+
+        if (Platform.OS === 'android') {
+            const batteryOk = AlarmRinging.isIgnoringBatteryOptimizations();
+            setBatteryExempt(batteryOk);
+            if (!batteryOk) {
+                Alert.alert(
+                    'Cho phép chạy nền',
+                    'Nhiều máy (Xiaomi/Oppo/Vivo/Samsung...) tự tắt app để tiết kiệm pin, khiến báo thức không kêu. Bỏ qua tối ưu hoá pin cho Minotara để tránh việc này.',
+                    [
+                        { text: 'Để sau', style: 'cancel' },
+                        { text: 'Mở cài đặt', onPress: () => AlarmRinging.openBatteryOptimizationSettings() },
+                    ],
+                );
+            }
+            const fullScreenOk = AlarmRinging.canUseFullScreenIntent();
+            setFullScreenAllowed(fullScreenOk);
+            if (!fullScreenOk) {
+                Alert.alert(
+                    'Cho phép hiện toàn màn hình',
+                    'Thiếu quyền này thì đến giờ chỉ hiện một thông báo nhỏ thay vì tự bật màn hình mở thẳng vào bài làm.',
+                    [
+                        { text: 'Để sau', style: 'cancel' },
+                        { text: 'Mở cài đặt', onPress: () => AlarmRinging.openFullScreenIntentSettings() },
+                    ],
+                );
+            }
+        }
     }
 
     function toggleDay(n: number) {
@@ -152,6 +209,20 @@ export default function AlarmSettingsScreen() {
                         </Text>
                     </Pressable>
                 ) : null}
+                {cfg.enabled && Platform.OS === 'android' && !batteryExempt ? (
+                    <Pressable style={s.warn} onPress={() => AlarmRinging.openBatteryOptimizationSettings()}>
+                        <Text style={s.warnText}>
+                            Máy có thể tự tắt báo thức để tiết kiệm pin — Chạm để cho phép Minotara chạy nền.
+                        </Text>
+                    </Pressable>
+                ) : null}
+                {cfg.enabled && Platform.OS === 'android' && !fullScreenAllowed ? (
+                    <Pressable style={s.warn} onPress={() => AlarmRinging.openFullScreenIntentSettings()}>
+                        <Text style={s.warnText}>
+                            Chưa được phép hiện toàn màn hình — đến giờ chỉ hiện thông báo nhỏ. Chạm để cho phép.
+                        </Text>
+                    </Pressable>
+                ) : null}
 
                 <Text style={s.section}>Giờ</Text>
                 <View style={s.clock}>
@@ -159,6 +230,19 @@ export default function AlarmSettingsScreen() {
                     <Text style={s.clockColon}>:</Text>
                     <TimeColumn value={pad(cfg.minute)} onUp={() => shiftTime('minute', 1)} onDown={() => shiftTime('minute', -1)} s={s} t={t} />
                 </View>
+
+                {Platform.OS === 'android' ? (
+                    <>
+                        <Text style={s.section}>Âm thanh</Text>
+                        <Pressable style={s.actionRow} onPress={pickSound}>
+                            <Text style={s.actionRowText}>Âm báo thức</Text>
+                            <View style={s.soundValueWrap}>
+                                <Text style={s.soundValue} numberOfLines={1}>{soundTitle}</Text>
+                                <UiIcon icon={Icons.ChevronRight} size={16} color={t.text.tertiary} />
+                            </View>
+                        </Pressable>
+                    </>
+                ) : null}
 
                 <Text style={s.section}>Ngày lặp</Text>
                 <View style={s.days}>
@@ -206,30 +290,11 @@ export default function AlarmSettingsScreen() {
                     liên tục tới khi làm đúng đủ số câu, không tự tắt sau vài giây.
                 </Text>
                 {Platform.OS === 'android' ? (
-                    <>
-                        <Text style={s.note}>
-                            Máy Xiaomi/Oppo/Vivo/Samsung có thể vẫn chặn app chạy nền bất kể cài đặt
-                            dưới đây — đó là giới hạn của hãng máy, không sửa được từ trong app.
-                        </Text>
-                        {!batteryExempt && (
-                            <Pressable
-                                style={s.actionRow}
-                                onPress={() => AlarmRinging.openBatteryOptimizationSettings()}
-                            >
-                                <Text style={s.actionRowText}>Bỏ qua tối ưu hoá pin cho Minotara</Text>
-                                <UiIcon icon={Icons.ChevronRight} size={16} color={t.text.tertiary} />
-                            </Pressable>
-                        )}
-                        {Platform.Version >= 34 && (
-                            <Pressable
-                                style={s.actionRow}
-                                onPress={() => AlarmRinging.openFullScreenIntentSettings()}
-                            >
-                                <Text style={s.actionRowText}>Cho phép hiện toàn màn hình (Android 14+)</Text>
-                                <UiIcon icon={Icons.ChevronRight} size={16} color={t.text.tertiary} />
-                            </Pressable>
-                        )}
-                    </>
+                    <Text style={s.note}>
+                        Máy Xiaomi/Oppo/Vivo/Samsung có thể vẫn chặn app chạy nền bất kể đã cấp quyền ở
+                        trên — đó là giới hạn của hãng máy, không sửa được từ trong app. Thiếu quyền nào
+                        thì mở lại màn này để thấy nhắc chạm-để-cấp ở đầu trang.
+                    </Text>
                 ) : null}
 
                 {cfg.enabled ? (
@@ -346,5 +411,7 @@ function makeStyles(t: Semantic) {
             borderWidth: StyleSheet.hairlineWidth, borderColor: t.border.default,
         },
         actionRowText: { fontSize: 13, color: t.text.primary, flex: 1 },
+        soundValueWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: 170 },
+        soundValue: { fontSize: 13, color: t.text.tertiary, flexShrink: 1 },
     });
 }

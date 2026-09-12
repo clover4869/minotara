@@ -14,7 +14,7 @@
  * hoặc tới trạng thái xong — không bao giờ tới màn hình trắng. Xem
  * stores/alarm-session.ts.
  */
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator, AppState, BackHandler, Pressable, StyleSheet, Text, Vibration, View,
 } from 'react-native';
@@ -34,6 +34,16 @@ import AlarmRinging from '../../modules/alarm-ringing';
  *  đáp án đúng vừa lộ ra — sai mà lướt qua ngay thì không học được gì. */
 const ADVANCE_MS_CORRECT = 900;
 const ADVANCE_MS_WRONG = 2400;
+
+/** Mở app lên (màn hiện ra) KHÔNG có nghĩa là đang làm bài — có thể chỉ đang
+ *  cầm máy nhìn, hoặc màn tự sáng rồi bị bỏ đó. Không tự tin đủ để im chuông
+ *  chỉ vì màn hình mount; phải đợi một hành động thật (bấm "Làm bài"). Và nếu
+ *  vào bài rồi mà im re quá lâu không bấm gì — coi như đã rời đi, quay lại
+ *  màn chặn + kêu lại, không được phép im lặng vô thời hạn chỉ vì app vẫn
+ *  đang ở foreground. */
+const IDLE_TIMEOUT_MS = 25_000;
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
 
 export default function AlarmSessionScreen() {
     const t = usePalette();
@@ -57,6 +67,11 @@ export default function AlarmSessionScreen() {
     const teardown = useAlarmSession((st) => st.teardown);
 
     const started = useRef(false);
+    // Luôn bắt đầu ở màn chặn — kể cả lần mount đầu tiên. Chỉ hành động thật
+    // (bấm "Làm bài") mới hạ cờ này xuống, xem effect chuông bên dưới.
+    const [gateOpen, setGateOpen] = useState(true);
+    const [now, setNow] = useState(() => new Date());
+    const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         if (started.current) return;
@@ -69,29 +84,63 @@ export default function AlarmSessionScreen() {
 
     useEffect(() => () => teardown(), [teardown]);
 
+    // Đồng hồ sống cho màn chặn — không cần chính xác tới giây, chỉ cần tự
+    // nhảy số khi qua phút mà không phải mở lại màn.
+    useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(id);
+    }, []);
+
     /*
-      Chuông thật (AlarmRingingService, native) kêu liên tục qua loa max —
-      phải tự im khi người dùng ĐANG ở đúng màn này để không đè lên audio phát
-      âm của câu hỏi, và phải kêu lại ngay nếu họ rời đi (khoá màn / qua app
-      khác) mà CHƯA làm xong — nếu không, mở app lên tắt tiếng rồi thoát ra là
-      qua mặt được cả tính năng.
+      Chuông thật (AlarmRingingService, native) kêu liên tục qua loa max. CHỈ
+      hai việc được phép làm nó tạm im: (1) người dùng bấm hẳn "Làm bài" ở màn
+      chặn, hoặc — không, chỉ một việc đó thôi. Mọi thứ khác (mới mở app lên,
+      rời đi, im re không thao tác) đều phải MỞ LẠI màn chặn + kêu lại, chưa
+      từng chứng minh được là đang thật sự làm bài.
 
       `pauseAlarmRinging`/`resumeAlarmRinging` an toàn khi gọi thừa: native tự
       no-op nếu không đang RINGING/PAUSED đúng chiều, và gọi sau khi đã
       `stopAlarmRinging()` (làm xong bài) luôn no-op cho tới báo thức kế tiếp.
     */
+    const openGate = useCallback(() => {
+        setGateOpen(true);
+        AlarmRinging.resumeAlarmRinging();
+    }, []);
+
     useEffect(() => {
         AlarmRinging.setShowOverLockscreen(true);
-        AlarmRinging.pauseAlarmRinging();
         const sub = AppState.addEventListener('change', (state) => {
-            if (state === 'active') AlarmRinging.pauseAlarmRinging();
-            else AlarmRinging.resumeAlarmRinging();
+            if (state !== 'active') openGate();
         });
         return () => {
             sub.remove();
             AlarmRinging.setShowOverLockscreen(false);
         };
-    }, []);
+    }, [openGate]);
+
+    function startQuiz() {
+        Vibration.vibrate(10);
+        setGateOpen(false);
+        AlarmRinging.pauseAlarmRinging();
+    }
+
+    // Hẹn giờ nhàn rỗi: chỉ chạy khi đã qua màn chặn và chưa xong bài. Bất kỳ
+    // chạm nào trong lúc làm bài (poke() bên dưới) đều dời hẹn giờ ra xa thêm
+    // — không nhất thiết phải TRẢ LỜI xong một câu mới tính là "còn đó", đọc
+    // đề cũng mất thời gian.
+    const resetIdle = useCallback(() => {
+        if (idleTimer.current) clearTimeout(idleTimer.current);
+        idleTimer.current = setTimeout(openGate, IDLE_TIMEOUT_MS);
+    }, [openGate]);
+
+    useEffect(() => {
+        if (gateOpen || done) {
+            if (idleTimer.current) clearTimeout(idleTimer.current);
+            return;
+        }
+        resetIdle();
+        return () => { if (idleTimer.current) clearTimeout(idleTimer.current); };
+    }, [gateOpen, done, resetIdle]);
 
     // Nuốt nút Back trong suốt phiên. Bỏ chặn ngay khi xong để nút Back lại
     // hoạt động bình thường ở màn kết quả.
@@ -126,8 +175,22 @@ export default function AlarmSessionScreen() {
 
     const progress = correct / Math.max(1, target);
 
+    if (gateOpen) {
+        return (
+            <SafeAreaView style={s.gateRoot} edges={['top', 'bottom']}>
+                <Text style={s.gateEyebrow}>Đến giờ học rồi</Text>
+                <Text style={s.gateClock}>{pad2(now.getHours())}:{pad2(now.getMinutes())}</Text>
+                {target > 0 ? <Text style={s.gateProgress}>Đã đúng {correct}/{target} câu</Text> : null}
+                <Text style={s.gateHint}>Chuông sẽ còn kêu tới khi bạn làm đúng đủ số câu.</Text>
+                <Pressable style={s.gateBtn} onPress={startQuiz}>
+                    <Text style={s.gateBtnText}>Làm bài</Text>
+                </Pressable>
+            </SafeAreaView>
+        );
+    }
+
     return (
-        <SafeAreaView style={s.root} edges={['top', 'bottom']}>
+        <SafeAreaView style={s.root} edges={['top', 'bottom']} onTouchStart={resetIdle}>
             <View style={s.topBar}>
                 <View style={s.progressTrack}>
                     <View style={[s.progressFill, { width: `${progress * 100}%` }]} />
@@ -200,6 +263,17 @@ function makeStyles(t: Semantic, fs: number) {
         progressTrack: { flex: 1, height: 6, backgroundColor: t.surface.raised, borderRadius: 999, overflow: 'hidden' },
         progressFill: { height: 6, backgroundColor: t.accent.bg, borderRadius: 999 },
         counter: { color: t.text.secondary, fontSize: 13 },
+
+        gateRoot: {
+            flex: 1, backgroundColor: t.status.warningBg,
+            alignItems: 'center', justifyContent: 'center', padding: 32, gap: 6,
+        },
+        gateEyebrow: { fontSize: 15 * fs, color: t.text.warning, fontWeight: '600' },
+        gateClock: { fontSize: 72 * fs, fontWeight: '300', color: t.text.primary, fontVariant: ['tabular-nums'], marginVertical: 8 },
+        gateProgress: { fontSize: 15 * fs, color: t.text.secondary },
+        gateHint: { fontSize: 13 * fs, color: t.text.tertiary, textAlign: 'center', marginTop: 4, marginBottom: 28, maxWidth: 260 },
+        gateBtn: { backgroundColor: t.surface.inverse, paddingHorizontal: 48, paddingVertical: 16, borderRadius: 14 },
+        gateBtnText: { color: t.text.onInverse, fontSize: 17 * fs, fontWeight: '700' },
 
         // Style của câu trắc nghiệm nằm trong components/quiz-card.tsx.
         cardArea: { flex: 1, justifyContent: 'center' },

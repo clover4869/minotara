@@ -169,7 +169,10 @@ class AlarmRingingService : Service() {
     }
 
     private fun playSound() {
-        val uri: Uri = RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM)
+        // Ưu tiên âm người dùng tự chọn (AlarmRingingModule.pickAlarmSound) —
+        // null nghĩa là chưa chọn gì, dùng luôn chuông mặc định của máy.
+        val uri: Uri = loadSoundUri(this)
+            ?: RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
         mediaPlayer = MediaPlayer().apply {
             setAudioAttributes(
