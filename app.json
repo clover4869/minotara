@@ -3,6 +3,10 @@
     "name": "Minotara",
     "slug": "minotara",
     "version": "1.0.0",
+    "platforms": [
+      "android",
+      "ios"
+    ],
     "orientation": "portrait",
     "icon": "./assets/icons/icon.png",
     "scheme": [
