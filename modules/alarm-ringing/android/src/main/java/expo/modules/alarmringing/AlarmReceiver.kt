@@ -17,7 +17,11 @@ class AlarmReceiver : BroadcastReceiver() {
             val prefs = context.getSharedPreferences(ALARM_PREFS_NAME, Context.MODE_PRIVATE)
             val hour = prefs.getInt(PREF_HOUR, -1)
             val minute = prefs.getInt(PREF_MINUTE, -1)
-            if (hour >= 0 && minute >= 0) scheduleOne(context, hour, minute, weekday)
+            // Bọc runCatching: lỗi tái lập lịch cho +7 ngày sau KHÔNG được phép
+            // chặn dòng start() bên dưới — occurrence hôm nay vẫn phải kêu dù
+            // việc đặt lịch cho tuần sau có thất bại (vd. mất quyền exact alarm
+            // ngay lúc broadcast này chạy).
+            if (hour >= 0 && minute >= 0) runCatching { scheduleOne(context, hour, minute, weekday) }
         }
         AlarmRingingService.start(context)
     }

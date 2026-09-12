@@ -74,7 +74,14 @@ export default function AlarmSettingsScreen() {
     }, []);
 
     async function pickSound() {
-        setSoundTitle(await pickAlarmSound());
+        try {
+            setSoundTitle(await pickAlarmSound());
+        } catch {
+            // Native tự rớt hạn (60s) nếu activity chọn nhạc bị huỷ mà không
+            // giao được kết quả về — hiếm nhưng có thật (OS thu hồi bộ nhớ
+            // giữa lúc đang chọn). Giữ nguyên tên cũ, không cần báo lỗi ra màn
+            // hình: người dùng chỉ thấy như đã bấm back, không mất gì.
+        }
     }
 
     useFocusEffect(useCallback(() => { refresh(); }, [refresh]));

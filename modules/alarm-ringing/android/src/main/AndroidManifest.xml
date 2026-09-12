@@ -4,6 +4,15 @@
          khác lúc trước gỡ 2 quyền này vì expo-audio khai mặc định mà không dùng. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- AlarmRingingService.acquireWakeLock() cần quyền này để giữ CPU thức lúc
+         chuông kêu. Trước đây quyền này "có" trong APK final chỉ nhờ được kéo
+         gián tiếp qua androidx.media3:media3-exoplayer (dependency của
+         expo-audio, dùng cho tiếng đọc từ — không liên quan gì tới module này).
+         Phụ thuộc bắc cầu vào một thư viện không do module này quản lý cho một
+         quyền an toàn cốt lõi là mong manh: expo-audio đổi engine phát âm là
+         quyền biến mất âm thầm, PowerManager.acquire() ném SecurityException,
+         và cả tính năng câm hẳn mà không một dòng code nào ở đây thay đổi. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application>
         <receiver android:name=".AlarmReceiver" android:exported="false" />

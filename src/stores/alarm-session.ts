@@ -22,7 +22,7 @@ import { grade, type SrsState } from '@/services/srs';
 import { buildStudyPool } from '@/services/study-pool';
 import { buildQuizQuestion, type QuizQuestion } from '@/services/quiz';
 import { searchImages, imageQueryFor } from '@/services/image-search';
-import { playRepeating, stopRepeat } from '@/services/audio';
+import { stopRepeat } from '@/services/audio';
 import { clearAlarmNotifications } from '@/services/alarm';
 import { loadCard, type CardContent } from '@/stores/review-session';
 import { useApp } from '@/stores/app';
@@ -220,10 +220,11 @@ async function showNext(
         loadQuizImages(q, card, get, set);
     }
 
-    // Phát âm lặp liên tục ở CẢ HAI kiểu bài, không phụ thuộc công tắc
-    // "tự động phát âm" trong Cài đặt: ở đây tiếng đọc là một phần của việc
-    // đánh thức, không phải tuỳ chọn tiện lợi lúc tra từ.
-    playRepeating(card.audio);
+    // KHÔNG playRepeating() ở đây nữa — begin() gọi showNext() ngay lúc màn
+    // hình mount, tức là lúc màn CHẶN đang hiện (xem alarm-session.tsx), chưa
+    // chắc người dùng đã bấm "Làm bài". Phát âm ở đây thì tiếng đọc bị chuông
+    // báo thức (loa max) đè hoàn toàn, nghe như không đọc gì. Màn hình tự phát
+    // khi thật sự qua màn chặn — xem effect phát âm trong alarm-session.tsx.
 }
 
 /**

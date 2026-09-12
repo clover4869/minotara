@@ -19,7 +19,13 @@ class BootReceiver : BroadcastReceiver() {
         val days = prefs.getString(PREF_DAYS, null) ?: return
         if (hour < 0 || minute < 0) return
         days.split(",").mapNotNull { it.toIntOrNull() }.forEach { weekday ->
-            scheduleOne(context, hour, minute, weekday)
+            // setAlarmClock() có thể ném SecurityException nếu người dùng đã
+            // thu hồi quyền "Báo thức & lời nhắc" (Android 12+ cho tắt bất kỳ
+            // lúc nào qua Cài đặt, không cần gỡ app). Ném ra khỏi onReceive()
+            // của BroadcastReceiver là crash cả tiến trình — đúng lúc người
+            // dùng vừa khởi động lại máy, hộp thoại "App liên tục dừng" hiện ra
+            // ngay không báo trước, một ngày còn tệ hơn cả báo thức không kêu.
+            runCatching { scheduleOne(context, hour, minute, weekday) }
         }
     }
 }

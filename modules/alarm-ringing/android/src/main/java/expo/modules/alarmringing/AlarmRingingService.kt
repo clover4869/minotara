@@ -95,14 +95,18 @@ class AlarmRingingService : Service() {
     }
 
     private fun startRinging() {
-        if (state == RingState.RINGING) return
-        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        if (originalAlarmVolume == null) {
-            originalAlarmVolume = am.getStreamVolume(AudioManager.STREAM_ALARM)
-        }
-        am.setStreamVolume(AudioManager.STREAM_ALARM, am.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
-
-        acquireWakeLock()
+        // Hỏi TRỰC TIẾP trạng thái thật của MediaPlayer lúc này, không dùng cờ
+        // tĩnh: Android tái dùng CÙNG instance Service cho các lần báo thức
+        // khác ngày (lịch lặp), onCreate() chỉ chạy một lần cho cả vòng đời đó
+        // — một cờ kiểu "đã setup chưa" gán true rồi không nơi nào đặt lại
+        // false sẽ chặn nhầm ngày kế tiếp y hệt bug state persisted trước đây,
+        // chỉ khác chỗ trú (bộ nhớ instance thay vì SharedPreferences). isPlaying
+        // phản ánh đúng "đang thật sự kêu ngay bây giờ" — an toàn để gọi lại
+        // startRinging() thừa (không cắt đang phát), mà KHÔNG chặn nhầm một
+        // occurrence mới khi instance cũ chỉ đang PAUSED (không phải null,
+        // không phải đang phát) từ hôm trước.
+        if (runCatching { mediaPlayer?.isPlaying }.getOrNull() == true) return
+        ensureLoudAndAwake()
         playSound()
         playVibration()
         persistState(RingState.RINGING)
@@ -110,7 +114,12 @@ class AlarmRingingService : Service() {
 
     private fun pauseRinging() {
         if (state != RingState.RINGING) return
-        mediaPlayer?.pause()
+        // File âm lỗi (mp3 riêng mất quyền đọc, hỏng, …) khiến MediaPlayer kẹt
+        // ở trạng thái không hợp lệ — pause()/start() trên nó ném
+        // IllegalStateException KHÔNG được bắt, làm sập cả Service (kể cả
+        // notification/rung cũng biến mất theo). Chuông không phát ra được đã
+        // là hỏng một nửa; không được để nó kéo sập luôn phần còn hoạt động.
+        runCatching { mediaPlayer?.pause() }
         vibrator?.cancel()
         persistState(RingState.PAUSED)
     }
@@ -121,9 +130,31 @@ class AlarmRingingService : Service() {
         // ở onCreate() nên chốt này đứng vững kể cả khi instance cũ đã bị huỷ
         // (sau stopSelf()) hoặc bị OS kill giữa chừng rồi tạo instance mới.
         if (state == RingState.STOPPED) return
-        if (mediaPlayer == null) playSound() else mediaPlayer?.start()
+        // Instance có thể là MỚI (cũ bị OS giết lúc PAUSED) — mediaPlayer khi
+        // đó là null, và wakeLock/volume max cũng đã mất theo instance cũ.
+        // Từng chỉ gọi playSound()/mediaPlayer?.start() ở đây, bỏ sót cả hai
+        // việc kia: kêu đúng bài hát nhưng không giữ CPU thức, và có thể kêu ở
+        // mức âm lượng KHÔNG phải tối đa (USAGE_ALARM vẫn xuyên im lặng, nhưng
+        // không còn đảm bảo "to hết cỡ" như đã hứa).
+        ensureLoudAndAwake()
+        runCatching { if (mediaPlayer == null) playSound() else mediaPlayer?.start() }
         playVibration()
         persistState(RingState.RINGING)
+    }
+
+    /** Dùng chung cho startRinging()/resumeRinging(): max STREAM_ALARM (nhớ mức
+     *  gốc để trả lại lúc stopRinging()) + giữ wake lock. Tách riêng vì
+     *  resumeRinging() có thể chạy trên một instance MỚI (cái cũ đã bị OS giết
+     *  lúc PAUSED) — thứ duy nhất còn "nhớ" là state trong SharedPreferences,
+     *  không phải wakeLock/originalAlarmVolume, nên phải tự dựng lại từ đầu
+     *  giống hệt startRinging(), không chỉ mỗi việc phát tiếp âm thanh. */
+    private fun ensureLoudAndAwake() {
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        if (originalAlarmVolume == null) {
+            originalAlarmVolume = am.getStreamVolume(AudioManager.STREAM_ALARM)
+        }
+        am.setStreamVolume(AudioManager.STREAM_ALARM, am.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
+        acquireWakeLock()
     }
 
     private fun stopRinging() {
@@ -169,6 +200,13 @@ class AlarmRingingService : Service() {
     }
 
     private fun playSound() {
+        // Giải phóng player CŨ trước khi tạo mới — startRinging() giờ chỉ chặn
+        // khi đang isPlaying=true thật sự, nên vẫn có thể chạy tới đây với một
+        // player cũ còn sống nhưng KHÔNG phát (PAUSED từ hôm trước, hoặc hỏng
+        // dữ liệu từ lần setDataSource() thất bại trước đó) — không release()
+        // trước thì rò tài nguyên native mỗi lần một occurrence mới tái dùng
+        // instance cũ.
+        mediaPlayer?.let { runCatching { it.release() } }
         // Ưu tiên âm người dùng tự chọn (AlarmRingingModule.pickAlarmSound) —
         // null nghĩa là chưa chọn gì, dùng luôn chuông mặc định của máy.
         val uri: Uri = loadSoundUri(this)

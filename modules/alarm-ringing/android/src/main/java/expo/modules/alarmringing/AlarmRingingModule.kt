@@ -10,6 +10,8 @@ import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
@@ -126,6 +128,20 @@ class AlarmRingingModule : Module() {
                     pickSoundPromise = null
                     promise.reject("ERR_PICKER", "Không mở được màn chọn âm thanh", it)
                 }
+                .onSuccess {
+                    // OnActivityResult là cách DUY NHẤT giải quyết promise này.
+                    // Activity hệ thống của picker bị huỷ mà không giao được kết
+                    // quả về (OS thu hồi bộ nhớ giữa lúc đang chọn, hiếm nhưng
+                    // có thật) thì không còn ai gọi lại — promise treo vĩnh viễn,
+                    // await phía JS đứng hình không báo lỗi. Tự rớt hạn sau một
+                    // khoảng hợp lý thay vì tin tưởng tuyệt đối vào callback.
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        if (pickSoundPromise === promise) {
+                            pickSoundPromise = null
+                            promise.reject("ERR_PICKER_TIMEOUT", "Không nhận được kết quả từ màn chọn âm thanh", null)
+                        }
+                    }, PICK_SOUND_TIMEOUT_MS)
+                }
         }
 
         OnActivityResult { _, payload ->
@@ -141,6 +157,22 @@ class AlarmRingingModule : Module() {
             // — giữ nguyên lựa chọn cũ, không ghi đè bằng giá trị rỗng.
             if (payload.resultCode == Activity.RESULT_OK) {
                 val uri = payload.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+                // Quyền đọc URI picker trả về chỉ tạm thời — hết hạn khi Activity
+                // nhận kết quả này kết thúc. Chuông thật phát ra ở một Service
+                // khác, có thể ở một tiến trình khác, LÂU sau khi màn hình này
+                // đã đóng — không "giữ" (persist) quyền thì mọi âm KHÔNG PHẢI
+                // chuông hệ thống có sẵn (nhạc chuông máy tự thêm, file mp3
+                // riêng...) sẽ phát lỗi SecurityException âm thầm lúc báo thức
+                // thật kêu, y hệt như không chọn gì. Bỏ qua lỗi nếu URI này vốn
+                // không có quyền để giữ (ví dụ nhạc chuông hệ thống, world-
+                // readable sẵn, không cần bước này).
+                if (uri != null) {
+                    runCatching {
+                        context.contentResolver.takePersistableUriPermission(
+                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                        )
+                    }
+                }
                 saveSoundUri(context, uri)
             }
             promise.resolve(resolveSoundTitle(context))
@@ -201,6 +233,7 @@ private const val PREF_COUNT = "scheduled_count"
 private const val PREF_SOUND_URI = "sound_uri"
 private const val REQUEST_CODE_BASE = 9000
 private const val REQUEST_CODE_PICK_SOUND = 9100
+private const val PICK_SOUND_TIMEOUT_MS = 60_000L
 
 private fun writePrefs(context: Context, hour: Int, minute: Int, weekdays: List<Int>) {
     context.getSharedPreferences(ALARM_PREFS_NAME, Context.MODE_PRIVATE).edit()
@@ -211,8 +244,18 @@ private fun writePrefs(context: Context, hour: Int, minute: Int, weekdays: List<
         .apply()
 }
 
+/** Chỉ xoá đúng mấy key LỊCH (giờ/phút/ngày/số lịch) — KHÔNG .clear() cả file,
+ *  vì PREF_SOUND_URI nằm chung SharedPreferences này. Tắt công tắc báo thức
+ *  (gọi hàm này) không có lý do gì phải quên luôn âm thanh người dùng đã chọn
+ *  riêng; trước đây .clear() làm đúng việc đó — bật lại là về "Mặc định hệ
+ *  thống", mất lựa chọn dù người dùng không hề đụng tới mục Âm thanh. */
 private fun clearPrefs(context: Context) {
-    context.getSharedPreferences(ALARM_PREFS_NAME, Context.MODE_PRIVATE).edit().clear().apply()
+    context.getSharedPreferences(ALARM_PREFS_NAME, Context.MODE_PRIVATE).edit()
+        .remove(PREF_HOUR)
+        .remove(PREF_MINUTE)
+        .remove(PREF_DAYS)
+        .remove(PREF_COUNT)
+        .apply()
 }
 
 /** null = chưa chọn gì, dùng chuông mặc định của máy. Dùng chung cho module

@@ -24,6 +24,7 @@ import { router } from 'expo-router';
 import { openUser } from '@/db/open';
 import { getAlarm } from '@/db/user';
 import { QuizCard } from '@/components/quiz-card';
+import { playRepeating, stopRepeat } from '@/services/audio';
 import { useAlarmSession } from '@/stores/alarm-session';
 import { useApp, FONT_MULT } from '@/stores/app';
 import { usePalette } from '@/theme/use-palette';
@@ -141,6 +142,18 @@ export default function AlarmSessionScreen() {
         resetIdle();
         return () => { if (idleTimer.current) clearTimeout(idleTimer.current); };
     }, [gateOpen, done, resetIdle]);
+
+    // Đọc từ CHỈ khi đã qua màn chặn — trước đây store tự phát ngay lúc
+    // begin() (tức là ngay lúc mount, còn đang ở màn chặn), nên tiếng đọc bị
+    // chuông báo thức đè hoàn toàn, nghe như câm. Gắn vào `card` (không phải
+    // `question`) để chạy đúng cho cả hai kiểu bài. Mỗi lần quay lại màn chặn
+    // (rời app / im re quá lâu) rồi bấm "Làm bài" lại thì phát lại từ đầu tốc
+    // độ 1.0x — không kế thừa tốc độ đã tăng từ vòng lặp trước.
+    useEffect(() => {
+        if (gateOpen || done || !card) { stopRepeat(); return; }
+        playRepeating(card.audio);
+        return () => stopRepeat();
+    }, [gateOpen, done, card]);
 
     // Nuốt nút Back trong suốt phiên. Bỏ chặn ngay khi xong để nút Back lại
     // hoạt động bình thường ở màn kết quả.
