@@ -19,6 +19,12 @@
         <receiver android:name=".BootReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!-- Android tự HUỶ TOÀN BỘ lịch AlarmManager mỗi khi app được
+                     cập nhật (cài đè APK mới) — không chỉ lúc khởi động lại
+                     máy. Thiếu dòng này, người dùng cài bản update xong thấy
+                     công tắc vẫn "Bật" nhưng lịch thật đã mất sạch, và không
+                     có gì tự đặt lại — trông y hệt "chức năng chết". -->
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
         <service
