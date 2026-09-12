@@ -15,7 +15,7 @@ import { SessionQueue, shuffle, type SrsState } from '@/services/srs';
 import { syntheticState, type StudyItem } from '@/services/study-pool';
 import { formsOfEntry } from '@/services/lookup';
 import { searchImages, imageQueryFor } from '@/services/image-search';
-import { buildQuizQuestion, type QuizQuestion } from '@/services/quiz';
+import { buildQuizQuestion, type DictSense, type QuizQuestion } from '@/services/quiz';
 
 /** Số ảnh đưa vào carousel trắc nghiệm — khớp CACHE_KEEP trong
  *  image-search.ts, tức là lấy hết những gì đã lưu cho nghĩa đó. */
@@ -73,7 +73,7 @@ export interface CardContent {
      * Việt thì `definition` là câu tiếng Việt đó, còn ba mồi nhử là định
      * nghĩa tiếng Anh — đáp án đúng lộ ra chỉ vì khác ngôn ngữ.
      */
-    dictSenses: string[];
+    dictSenses: DictSense[];
     example: string | null;
     forms: string;
 }
@@ -148,7 +148,9 @@ export async function loadCard(cache: Map<number, CardContent>, entryId: number,
         definition: saved?.user_meaning ?? firstSense?.definition ?? '(chưa có nghĩa)',
         isUserMeaning: !!saved?.user_meaning,
         dictDefinition: saved?.user_meaning ? firstSense?.definition ?? null : null,
-        dictSenses: data.senses.map((x) => x.definition).filter((d): d is string => !!d),
+        dictSenses: data.senses
+            .filter((x) => x.definition)
+            .map((x) => ({ definition: x.definition, examples: x.examples.map((e) => e.text).filter(Boolean) })),
         example: firstSense?.examples[0]?.text ?? null,
         forms,
     };
@@ -376,7 +378,8 @@ async function showCurrent(
         // đúng bốc ngẫu nhiên trong các nghĩa, nên lấy nghĩa đầu thì ảnh minh
         // hoạ một nghĩa khác của cùng từ — không sai hẳn, nhưng lệch với câu
         // hỏi đúng lúc ảnh đang là chỗ dựa để nhớ.
-        const asked = get().question?.choices.find((x) => x.correct)?.text ?? c.dictSenses[0] ?? null;
+        const asked = get().question?.choices.find((x) => x.correct)?.text
+            ?? c.dictSenses[0]?.definition ?? null;
         (async () => {
             let imgs: string[] = [];
             try {

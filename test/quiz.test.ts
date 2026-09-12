@@ -174,7 +174,7 @@ describe('buildQuizQuestion', () => {
         pos: 'noun',
         ipa: '/ˈæpl/',
         audio: 'https://a/x.mp3',
-        dictSenses: ['a round fruit with shiny red or green skin'],
+        dictSenses: [{ definition: 'a round fruit with shiny red or green skin', examples: ['Peel and core the apples.'] }],
         definition: 'a round fruit with shiny red or green skin',
         ...over,
     });
@@ -197,7 +197,7 @@ describe('buildQuizQuestion', () => {
     it('KHÔNG bao giờ lấy nghĩa tiếng Việt người dùng tự viết làm đáp án', async () => {
         const q = await buildQuizQuestion(dictOf(), src({
             definition: 'quả táo — nghĩa tôi tự ghi',
-            dictSenses: ['a round fruit with shiny red or green skin'],
+            dictSenses: [{ definition: 'a round fruit with shiny red or green skin', examples: [] }],
         }));
         const right = q.choices.find((c) => c.correct)!;
         expect(right.text).toBe('a round fruit with shiny red or green skin');
@@ -207,9 +207,9 @@ describe('buildQuizQuestion', () => {
     it('bốc ngẫu nhiên trong các nghĩa tiếng Anh — từ nhiều nghĩa không lặp mãi nghĩa đầu', async () => {
         const many = src({
             dictSenses: [
-                'nghia thu nhat du dai de dung lam dap an',
-                'nghia thu hai du dai de dung lam dap an',
-                'nghia thu ba du dai de dung lam dap an',
+                { definition: 'nghia thu nhat du dai de dung lam dap an', examples: ['vi du cua nghia mot'] },
+                { definition: 'nghia thu hai du dai de dung lam dap an', examples: ['vi du cua nghia hai'] },
+                { definition: 'nghia thu ba du dai de dung lam dap an', examples: [] },
             ],
         });
         const seen = new Set<string>();
@@ -222,7 +222,11 @@ describe('buildQuizQuestion', () => {
 
     it('bỏ qua nghĩa quá ngắn/dài khi chọn đáp án đúng', async () => {
         const q = await buildQuizQuestion(dictOf(), src({
-            dictSenses: ['a bird', 'x'.repeat(300), 'nghia duy nhat dung duoc o day'],
+            dictSenses: [
+                { definition: 'a bird', examples: [] },
+                { definition: 'x'.repeat(300), examples: [] },
+                { definition: 'nghia duy nhat dung duoc o day', examples: ['vi du di kem'] },
+            ],
         }));
         expect(q.choices.find((c) => c.correct)!.text).toBe('nghia duy nhat dung duoc o day');
     });
@@ -263,5 +267,55 @@ describe('buildQuizQuestion', () => {
         const q = await buildQuizQuestion(wrap(db), src());
         expect(q.choices).toHaveLength(1);
         expect(q.choices[0].correct).toBe(true);
+    });
+});
+
+describe('buildQuizQuestion — từ loại và ví dụ', () => {
+    function dictOf(): DbLike {
+        const db = new Database(':memory:');
+        db.exec('CREATE TABLE entries (id INTEGER PRIMARY KEY, headword TEXT, pos TEXT, data TEXT);');
+        const ins = db.prepare('INSERT INTO entries (id, headword, pos, data) VALUES (?,?,?,?)');
+        for (let i = 1; i <= 40; i++) {
+            ins.run(i, `w${i}`, 'noun', JSON.stringify({ senses: [{ definition: `nghia tu dien so ${i} du dai de dung` }] }));
+        }
+        return wrap(db);
+    }
+
+    it('mang theo từ loại để hiện cạnh từ', async () => {
+        const q = await buildQuizQuestion(dictOf(), {
+            entry_id: 1, headword: 'apple', pos: 'noun', ipa: '/ˈæpl/', audio: null,
+            definition: 'x',
+            dictSenses: [{ definition: 'a round fruit with shiny red skin', examples: [] }],
+        });
+        expect(q.pos).toBe('noun');
+    });
+
+    /**
+     * Đáp án bốc ngẫu nhiên trong các nghĩa, nên ví dụ PHẢI đi theo đúng nghĩa
+     * vừa bốc. Lấy ví dụ của nghĩa đầu là minh hoạ cho một nghĩa khác của cùng
+     * từ — không giúp gì, lại đánh lạc hướng đúng lúc đang cân nhắc.
+     */
+    it('ví dụ đi theo ĐÚNG nghĩa được chọn làm đáp án', async () => {
+        const src = {
+            entry_id: 1, headword: 'w', pos: 'noun', ipa: null, audio: null, definition: 'x',
+            dictSenses: [
+                { definition: 'nghia mot du dai de dung lam dap an', examples: ['vi du cua mot'] },
+                { definition: 'nghia hai du dai de dung lam dap an', examples: ['vi du cua hai'] },
+            ],
+        };
+        for (let i = 0; i < 20; i++) {
+            const q = await buildQuizQuestion(dictOf(), src);
+            const right = q.choices.find((c) => c.correct)!.text;
+            const want = right.includes('mot') ? 'vi du cua mot' : 'vi du cua hai';
+            expect(q.examples).toEqual([want]);
+        }
+    });
+
+    it('nghĩa không có ví dụ thì trả mảng rỗng, không mượn của nghĩa khác', async () => {
+        const q = await buildQuizQuestion(dictOf(), {
+            entry_id: 1, headword: 'w', pos: null, ipa: null, audio: null, definition: 'x',
+            dictSenses: [{ definition: 'nghia duy nhat khong co vi du', examples: [] }],
+        });
+        expect(q.examples).toEqual([]);
     });
 });

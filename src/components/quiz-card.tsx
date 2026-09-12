@@ -8,6 +8,7 @@
  * báo ra đáp án được chọn, hết. Chuyện lúc nào sang câu kế do màn hình quyết
  * định (mỗi màn có nhịp riêng).
  */
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 
@@ -39,8 +40,23 @@ export function QuizCard({ question, picked, onPick }: {
     const reveal = picked !== null;
     return (
         <ScrollView contentContainerStyle={s.scroll}>
-            <Text style={s.word}>{question.headword}</Text>
+            <Text style={s.word}>
+                {question.headword}
+                {question.pos ? <Text style={s.pos}>  {question.pos}</Text> : null}
+            </Text>
             {question.ipa ? <Text style={s.ipa}>{question.ipa}</Text> : null}
+
+            {/*
+              Ví dụ đặt TRÊN dải ảnh, không phải dưới.
+
+              Lý do là chuyện đã xảy ra thật: dải ảnh cao cố định 160px và
+              thường xuyên RỖNG (nguồn ảnh chặn, hoặc từ trừu tượng không có
+              ảnh). Ví dụ nằm dưới thì nó bị mồ côi sau một khoảng trắng —
+              nhìn như lỗi bố cục. Nằm trên thì từ · loại từ · IPA · ví dụ
+              gom thành một khối chữ liền mạch, dải ảnh thành dải phân cách
+              trước câu hỏi, và khối đó không đổi hình dù ảnh có về hay không.
+            */}
+            <ExampleLine examples={question.examples} entryId={question.entry_id} s={s} />
 
             {/* Carousel vuốt ngang, giữ chiều cao cố định kể cả khi chưa tải
                 xong hoặc không có ảnh: ảnh về muộn mà làm cụm đáp án tụt xuống
@@ -83,6 +99,43 @@ export function QuizCard({ question, picked, onPick }: {
 }
 
 type Styles = ReturnType<typeof makeStyles>;
+
+/** Đổi ví dụ mỗi ngần này. Đủ lâu để đọc hết một câu, đủ ngắn để kịp thấy
+ *  câu thứ hai trước khi người dùng chọn xong đáp án. */
+const EXAMPLE_ROTATE_MS = 4000;
+
+/**
+ * Ví dụ của nghĩa đang được hỏi. Từ nhiều ví dụ thì xoay vòng.
+ *
+ * Chiều cao cố định hai dòng kể cả khi KHÔNG có ví dụ: câu dài ngắn khác nhau
+ * mà để co giãn thì mỗi lần đổi ví dụ cả cụm bốn đáp án lại nhảy lên xuống —
+ * ngón tay đang chạm sẽ trúng nhầm ô.
+ *
+ * `entryId` trong deps để sang thẻ khác là quay lại ví dụ đầu, không nối tiếp
+ * nhịp của thẻ trước.
+ */
+function ExampleLine({ examples, entryId, s }: {
+    examples: string[];
+    entryId: number;
+    s: Styles;
+}) {
+    const [i, setI] = useState(0);
+
+    useEffect(() => {
+        setI(0);
+        if (examples.length < 2) return; // một ví dụ thì không cần timer
+        const id = setInterval(() => setI((n) => (n + 1) % examples.length), EXAMPLE_ROTATE_MS);
+        return () => clearInterval(id);
+    }, [entryId, examples.length]);
+
+    return (
+        <View style={s.exampleBox}>
+            {examples.length ? (
+                <Text style={s.example} numberOfLines={2}>{examples[i] ?? examples[0]}</Text>
+            ) : null}
+        </View>
+    );
+}
 
 /**
  * Ảnh của câu hỏi: vuốt ngang xem hết, không phải hai ô tĩnh.
@@ -127,7 +180,15 @@ function makeStyles(t: Semantic, fs: number) {
         center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
         scroll: { padding: 16, paddingBottom: 32, alignItems: 'stretch' },
         word: { fontSize: 34 * fs, fontWeight: '700', textAlign: 'center', color: t.text.primary },
+        pos: { fontSize: 15 * fs, fontWeight: '400', color: t.text.tertiary },
         ipa: { fontSize: 15 * fs, color: t.text.secondary, textAlign: 'center', marginTop: 4 },
+        // Hai dòng cố định: câu ví dụ dài ngắn khác nhau, để co giãn thì mỗi
+        // lần xoay vòng cả cụm đáp án bên dưới lại nhảy.
+        exampleBox: { height: 40, justifyContent: 'center', marginTop: 8 },
+        example: {
+            fontSize: 13 * fs, lineHeight: 18 * fs, fontStyle: 'italic',
+            color: t.text.tertiary, textAlign: 'center',
+        },
         images: { height: 160, marginTop: 14 },
         // Hở 8px bên phải mỗi ảnh: mép ảnh kế tiếp lộ ra đủ để người dùng
         // biết còn ảnh nữa mà vuốt, không cần dấu chấm chỉ trang.

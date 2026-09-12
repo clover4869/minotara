@@ -21,11 +21,26 @@ export interface QuizChoice {
 export interface QuizQuestion {
     entry_id: number;
     headword: string;
+    /** Từ loại, hiện ngay cạnh từ. */
+    pos: string | null;
     ipa: string | null;
     audio: string | null;
     /** undefined = đang tải, [] = không có ảnh (vẫn làm bài được bằng chữ). */
     images?: string[];
+    /**
+     * Ví dụ của ĐÚNG nghĩa được chọn làm đáp án — không phải ví dụ của nghĩa
+     * đầu. Đáp án bốc ngẫu nhiên trong các nghĩa, nên lấy ví dụ của nghĩa đầu
+     * là minh hoạ cho một nghĩa khác của cùng từ: vừa không giúp gì, vừa đánh
+     * lạc hướng đúng lúc người học đang cân nhắc.
+     */
+    examples: string[];
     choices: QuizChoice[];
+}
+
+/** Một nghĩa kèm ví dụ của chính nó. */
+export interface DictSense {
+    definition: string;
+    examples: string[];
 }
 
 /** Số đáp án mong muốn. Thiếu mồi nhử thì ít hơn — xem assembleChoices. */
@@ -142,8 +157,9 @@ export interface QuizSource {
     pos: string | null;
     ipa: string | null;
     audio: string | null;
-    /** Mọi nghĩa TIẾNG ANH của mục từ. Đáp án đúng bốc ngẫu nhiên từ đây. */
-    dictSenses: string[];
+    /** Mọi nghĩa TIẾNG ANH của mục từ, kèm ví dụ riêng. Đáp án đúng bốc
+     *  ngẫu nhiên từ đây, và ví dụ đi kèm chính nghĩa được bốc. */
+    dictSenses: DictSense[];
     /** Dùng khi mục từ không có nghĩa tiếng Anh nào dùng được. */
     definition: string;
 }
@@ -168,10 +184,10 @@ export async function buildQuizQuestion(
     opts: { sessionPool?: string[] } = {},
     rng: () => number = Math.random,
 ): Promise<QuizQuestion> {
-    const usable = src.dictSenses.filter(isUsableDefinition);
-    const correct = usable.length
-        ? usable[Math.floor(rng() * usable.length)]
-        : src.dictSenses[0] ?? src.definition;
+    const usable = src.dictSenses.filter((x) => isUsableDefinition(x.definition));
+    // Giữ cả object chứ không chỉ câu nghĩa: ví dụ phải đi theo đúng nghĩa vừa bốc.
+    const picked = usable.length ? usable[Math.floor(rng() * usable.length)] : null;
+    const correct = picked?.definition ?? src.dictSenses[0]?.definition ?? src.definition;
 
     const fromSession = shuffleIn(
         (opts.sessionPool ?? []).filter(isUsableDefinition),
@@ -186,8 +202,10 @@ export async function buildQuizQuestion(
     return {
         entry_id: src.entry_id,
         headword: src.headword,
+        pos: src.pos,
         ipa: src.ipa,
         audio: src.audio,
+        examples: picked?.examples ?? [],
         choices: assembleChoices(correct, [...fromSession, ...fromDict], rng),
     };
 }
