@@ -264,6 +264,39 @@ export async function getSetting(db: DbLike, key: string): Promise<string> {
 export const setSetting = (db: DbLike, key: string, value: string) =>
     db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', key, value);
 
+// ---------------------------------------------------------------- streak ôn tập
+function todayStr(): string {
+    return new Date().toISOString().slice(0, 10);
+}
+function daysBetween(a: string, b: string): number {
+    return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+}
+
+/**
+ * Số ngày liên tiếp còn ôn — không lưu số ngày trực tiếp, suy ra từ
+ * `streak_last_date` mỗi lần đọc: cách quá 1 ngày thì chuỗi đã đứt, hiện 0
+ * thay vì con số cũ gây hiểu lầm là vẫn còn.
+ */
+export async function getStreak(db: DbLike): Promise<number> {
+    const last = await getSetting(db, 'streak_last_date');
+    if (!last) return 0;
+    if (daysBetween(last, todayStr()) > 1) return 0;
+    return Number(await getSetting(db, 'streak_count')) || 0;
+}
+
+/** Gọi khi người dùng vừa chấm ít nhất một thẻ trong phiên. Idempotent theo
+ *  ngày — gọi nhiều lần trong cùng một ngày không tăng thêm. */
+export async function recordReviewActivity(db: DbLike): Promise<number> {
+    const today = todayStr();
+    const last = await getSetting(db, 'streak_last_date');
+    if (last === today) return Number(await getSetting(db, 'streak_count')) || 0;
+    const prev = Number(await getSetting(db, 'streak_count')) || 0;
+    const next = last && daysBetween(last, today) === 1 ? prev + 1 : 1;
+    await setSetting(db, 'streak_count', String(next));
+    await setSetting(db, 'streak_last_date', today);
+    return next;
+}
+
 // ---------------------------------------------------------------- báo thức
 /**
  * Một báo thức thôi, nên nằm trong `settings` dạng JSON thay vì một bảng

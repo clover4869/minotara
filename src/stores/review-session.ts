@@ -7,7 +7,10 @@
  */
 import { create } from 'zustand';
 import { openDictionary, openUser } from '@/db/open';
-import { loadSrsStates, persistGrades, nextDueAt, getSetting, setSetting, type NextDue, type SavedWord } from '@/db/user';
+import {
+    loadSrsStates, persistGrades, nextDueAt, getSetting, setSetting, recordReviewActivity,
+    type NextDue, type SavedWord,
+} from '@/db/user';
 import { SessionQueue, shuffle, type SrsState } from '@/services/srs';
 import { syntheticState, type StudyItem } from '@/services/study-pool';
 import { formsOfEntry } from '@/services/lookup';
@@ -26,16 +29,24 @@ import { useApp } from '@/stores/app';
  * trị riêng của thẻ nghe chỉ còn là giấu chữ — mà meaning2word cũng giấu chữ
  * và còn có định nghĩa làm câu hỏi. Thẻ ảnh cho một kiểu gợi nhớ khác hẳn
  * (thị giác), dùng lại luôn cache ảnh của tab Ảnh.
+ *
+ * Không còn chọn trước: mỗi thẻ tự bốc ngẫu nhiên một trong ba giá trị này
+ * (xem `randomMode` + `cardMode`) — chọn cố định cả phiên chỉ luyện đúng một
+ * phản xạ, còn ba chiều trộn lẫn buộc nhớ thật thay vì đoán theo khuôn.
  */
 export type ReviewMode = 'word2meaning' | 'meaning2word' | 'image2word';
+const REVIEW_MODES: ReviewMode[] = ['word2meaning', 'meaning2word', 'image2word'];
+function randomMode(): ReviewMode {
+    return REVIEW_MODES[Math.floor(Math.random() * REVIEW_MODES.length)];
+}
 
 /**
- * Trục thứ hai, độc lập với `mode`: thẻ lật hay trắc nghiệm.
+ * Trục thứ hai, độc lập với chiều hỏi: thẻ lật hay trắc nghiệm.
  *
  * Ba giá trị của `ReviewMode` đều là THẺ LẬT, chỉ khác chiều hỏi. Trắc nghiệm
  * không phải chiều hỏi thứ tư mà là một cách tương tác khác — nhét nó thành
  * giá trị thứ tư của ReviewMode là nói rằng nó thay thế được cho ba cái kia,
- * trong khi `mode` không còn nghĩa gì khi đang làm trắc nghiệm.
+ * trong khi chiều hỏi không còn nghĩa gì khi đang làm trắc nghiệm.
  */
 export type ReviewKind = 'card' | 'quiz';
 export type SessionPhase = 'card' | 'done';
@@ -68,11 +79,12 @@ export interface CardContent {
 }
 
 interface ReviewSessionState {
-    mode: ReviewMode;
-    setMode(m: ReviewMode): void;
+    /** Chiều hỏi của THẺ ĐANG HIỆN — bốc lại mỗi khi sang thẻ mới (showCurrent),
+     *  không phải một lựa chọn cố định cho cả phiên. Vô nghĩa khi `kind === 'quiz'`. */
+    cardMode: ReviewMode;
     kind: ReviewKind;
     setKind(k: ReviewKind): void;
-    /** Đọc lại lựa chọn đã lưu. Trước đây hai giá trị này chỉ nằm trong bộ
+    /** Đọc lại lựa chọn đã lưu. Trước đây giá trị này chỉ nằm trong bộ
      *  nhớ nên mở lại app là về mặc định — chọn xong rồi mất là thứ người dùng
      *  phải làm lại mỗi ngày. */
     loadPrefs(): Promise<void>;
@@ -145,11 +157,7 @@ export async function loadCard(cache: Map<number, CardContent>, entryId: number,
 }
 
 export const useReviewSession = create<ReviewSessionState>((set, get) => ({
-    mode: 'word2meaning',
-    setMode: (m) => {
-        set({ mode: m });
-        openUser().then((db) => setSetting(db, 'review_mode', m)).catch(() => {});
-    },
+    cardMode: 'word2meaning',
     kind: 'card',
     setKind: (k) => {
         set({ kind: k });
@@ -157,12 +165,8 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
     },
     async loadPrefs() {
         const db = await openUser();
-        const m = await getSetting(db, 'review_mode');
         const k = await getSetting(db, 'review_kind');
-        set({
-            mode: m === 'meaning2word' || m === 'image2word' ? m : 'word2meaning',
-            kind: k === 'quiz' ? 'quiz' : 'card',
-        });
+        set({ kind: k === 'quiz' ? 'quiz' : 'card' });
     },
 
     allStates: [],
@@ -233,8 +237,15 @@ export const useReviewSession = create<ReviewSessionState>((set, get) => ({
     },
 
     async exitSession() {
-        const { queue, noGrade } = get();
+        const { queue, noGrade, answered } = get();
         if (queue && !noGrade) await persistGradable(queue.graded);
+        // Chấm ít nhất một thẻ thì tính là có ôn hôm nay, kể cả thoát giữa
+        // chừng — không bắt phải đi hết phiên mới được tính streak.
+        //
+        // PHẢI await: exitEarly() ở màn hình gọi router.back() ngay sau khi
+        // exitSession() resolve — không đợi thì màn Bắt đầu quay lại đọc
+        // streak TRƯỚC khi dòng ghi này chạm đĩa, luôn thấy số cũ.
+        if (answered > 0) await recordReviewActivity(await openUser()).catch(() => {});
         stopRepeat();
     },
 
@@ -306,15 +317,19 @@ async function showCurrent(
     set({ flipped: false, picked: null });
     const cur = q.current;
     if (!cur) {
-        const { noGrade } = get();
+        const { noGrade, answered } = get();
+        const user = await openUser();
         if (!noGrade) await persistGradable(q.graded);
-        const nextDue = await nextDueAt(await openUser());
+        if (answered > 0) await recordReviewActivity(user).catch(() => {});
+        const nextDue = await nextDueAt(user);
         set({ nextDue, phase: 'done', card: null, question: null });
         return;
     }
     const dialect = useApp.getState().prefDialect;
     const c = await loadCard(get().cache, cur.entry_id, dialect);
-    set({ card: c });
+    // Bốc chiều hỏi mới cho thẻ này — chỉ có ý nghĩa ở kiểu thẻ lật, nhưng
+    // gán vô điều kiện cho đơn giản; màn trắc nghiệm không đọc trường này.
+    set({ card: c, cardMode: randomMode() });
 
     if (get().kind === 'quiz') {
         const pool = sessionDefs.filter((d) => d.entry_id !== c.entry_id).map((d) => d.def);
@@ -337,7 +352,7 @@ async function showCurrent(
     // cả vào cache phiên nên thẻ bị hỏi lại (từ mới phải đúng 2 lần) không
     // tải lại; thất bại ghi [] — một lần thử mỗi phiên, không dội Bing theo
     // mỗi lượt thẻ quay về.
-    if (get().mode === 'image2word' && get().kind === 'card' && c.images === undefined) {
+    if (get().cardMode === 'image2word' && get().kind === 'card' && c.images === undefined) {
         (async () => {
             let imgs: string[] = [];
             try {

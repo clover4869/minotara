@@ -3,47 +3,55 @@
  * Starting a session pushes into `review-session.tsx`, a full-screen modal
  * outside the tab bar — Task 22: the tab bar must not stay on screen during
  * an actual review, both to reclaim space and to remove an accidental exit.
+ *
+ * Chạm một trong hai lựa chọn là vào phiên luôn — không còn bước "chọn rồi
+ * bấm Bắt đầu" riêng, và không còn chọn trước chiều hỏi (Từ→Nghĩa/Nghĩa→Từ/
+ * Ảnh→Từ): mỗi thẻ trong phiên tự bốc ngẫu nhiên một chiều (xem `cardMode`
+ * trong stores/review-session.ts). Sau khi bỏ ba chip chiều hỏi, thứ còn lại
+ * để chọn trước chỉ là kind (thẻ lật/trắc nghiệm) — một lựa chọn duy nhất thì
+ * bắt xác nhận thêm bằng nút riêng chỉ là một cú chạm thừa.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 
 import { openDictionary, openUser } from '@/db/open';
-import { loadSrsStates } from '@/db/user';
-import { buildAheadSession, dueBoxCounts, type SrsState } from '@/services/srs';
+import { loadSrsStates, getStreak } from '@/db/user';
+import { buildAheadSession, type SrsState } from '@/services/srs';
 import { buildStudyPool } from '@/services/study-pool';
-import { useReviewSession, type ReviewMode } from '@/stores/review-session';
+import { useReviewSession, type ReviewKind } from '@/stores/review-session';
 import { usePalette } from '@/theme/use-palette';
 import { useTabBarSpace } from '@/components/glass-tab-bar';
+import { Icons, UiIcon } from '@/components/dict-ui';
+import { space, radius } from '@/theme/tokens';
 import type { Semantic } from '@/theme/tokens';
 
 export default function ReviewStartScreen() {
     const t = usePalette();
     const tabSpace = useTabBarSpace();
-    const s = useMemo(() => makeStyles(t), [t]);
-    const mode = useReviewSession((st) => st.mode);
-    const setMode = useReviewSession((st) => st.setMode);
-    const kind = useReviewSession((st) => st.kind);
+    const s = makeStyles(t);
     const setKind = useReviewSession((st) => st.setKind);
     const loadPrefs = useReviewSession((st) => st.loadPrefs);
     const setAllStates = useReviewSession((st) => st.setAllStates);
     const begin = useReviewSession((st) => st.begin);
 
-    const statesRef = useRef<SrsState[]>([]);
+    const [allStates, setLocalStates] = useState<SrsState[]>([]);
     const [dueCount, setDueCount] = useState(0);
     const [aheadCount, setAheadCount] = useState(0);
-    const [boxes, setBoxes] = useState([0, 0, 0, 0, 0]);
+    const [streak, setStreak] = useState(0);
+    const [showTip, setShowTip] = useState(false);
 
     const refreshCounts = useCallback(async () => {
-        const states = await loadSrsStates(await openUser());
-        statesRef.current = states;
+        const user = await openUser();
+        const states = await loadSrsStates(user);
+        setLocalStates(states);
         setAllStates(states);
         const now = new Date();
         const nowIso = now.toISOString();
         setDueCount(states.filter((st) => st.due_at <= nowIso).length);
         setAheadCount(buildAheadSession(states, now).length);
-        setBoxes(dueBoxCounts(states, now));
+        setStreak(await getStreak(user));
     }, [setAllStates]);
 
     // Fires on mount AND every time this tab regains focus — covers coming
@@ -51,153 +59,100 @@ export default function ReviewStartScreen() {
     // never remounts, so a mount-only effect wouldn't catch that).
     useFocusEffect(useCallback(() => { refreshCounts(); }, [refreshCounts]));
 
-    // Lựa chọn kiểu bài / chiều hỏi được lưu xuống DB, đọc lại một lần khi mở
-    // tab — trước đây chúng chỉ nằm trong bộ nhớ nên mở lại app là về mặc định.
+    // Lựa chọn kind được lưu xuống DB, đọc lại một lần khi mở tab — trước đây
+    // nó chỉ nằm trong bộ nhớ nên mở lại app là về mặc định.
     useEffect(() => { loadPrefs().catch(() => {}); }, [loadPrefs]);
 
     /*
-      Một nút duy nhất. Trước đây có hai: "Bắt đầu" (tắt khi hết thẻ đến hạn)
-      và "Ôn trước hạn" hiện thay chỗ — tức app nói "hôm nay xong rồi" với
-      người đang muốn học thêm, rồi lại mời học bằng một nút tên khác.
-
-      Giờ nguồn từ tự xuống tầng: sổ từ → lịch sử tra cứu → từ hôm nay → ngẫu
+      Nguồn từ tự xuống tầng: sổ từ → lịch sử tra cứu → từ hôm nay → ngẫu
       nhiên (services/study-pool.ts), nên luôn có bài. Trần 40 từ mỗi lượt —
       ba tầng sau gần như vô hạn, không có trần thì lượt học không bao giờ hết.
     */
-    async function start() {
-        const pool = await buildStudyPool(
-            await openDictionary(), await openUser(), statesRef.current);
+    async function startWith(kind: ReviewKind) {
+        setKind(kind);
+        const pool = await buildStudyPool(await openDictionary(), await openUser(), allStates);
         if (!pool.items.length) return;
         await begin(pool.items);
         router.push('/review-session');
     }
 
-    const maxBox = Math.max(1, ...boxes);
-    // dueBoxCounts() bỏ qua thẻ mới, nên khi tất cả đều mới thì cả 5 cột đều 0
-    // và đồ thị vẽ ra năm cái gạch cao bằng nhau ở đáy — nhìn hệt như "có đều
-    // ở cả 5 mức" trong khi thật ra là chưa có gì. Không có dữ liệu thì đừng vẽ.
-    const hasBoxes = boxes.some((n) => n > 0);
+    const dueLabel = dueCount > 0 ? `${dueCount} thẻ đến hạn`
+        : aheadCount > 0 ? 'Ôn trước hạn' : 'Học từ mới';
+
     return (
         <SafeAreaView style={[s.root, { paddingBottom: tabSpace }]} edges={['top']}>
-            <Text style={s.big}>{dueCount}</Text>
-            <Text style={s.secondaryText}>thẻ đến hạn hôm nay</Text>
-            {hasBoxes && (
-                <>
-                    <View style={s.bars}>
-                        {boxes.map((n, i) => (
-                            <View key={i} style={s.barCol}>
-                                <View style={[s.bar, { height: 8 + (n / maxBox) * 36 }]} />
-                                <Text style={s.barLabel}>{i + 1}</Text>
-                            </View>
-                        ))}
-                    </View>
-                    <Text style={s.caption}>Mức nhớ 1–5 · càng cao càng lâu mới phải ôn lại</Text>
-                </>
-            )}
-            <View style={[s.rowGap, { marginTop: 14 }]}>
-                <ModeChip label="Thẻ lật" active={kind === 'card'} onPress={() => setKind('card')} s={s} />
-                <ModeChip label="Trắc nghiệm" active={kind === 'quiz'} onPress={() => setKind('quiz')} s={s} />
+            <View style={s.statbar}>
+                <View style={s.statItem}>
+                    <UiIcon icon={Icons.Flame} size={14} color={t.text.warning} />
+                    <Text style={s.statText}>{streak} ngày</Text>
+                </View>
+                <View style={s.statDivider} />
+                <Text style={s.statTextStrong}>{dueLabel}</Text>
             </View>
-            {/* Hàng chiều hỏi chỉ có nghĩa với thẻ lật. Để nó hiện lúc đang
-                chọn trắc nghiệm là mời người dùng bấm một thứ không tác dụng. */}
-            {kind === 'card' && (
-                <View style={[s.rowGap, { marginTop: 8 }]}>
-                    <ModeChip label="Từ → Nghĩa" active={mode === 'word2meaning'} onPress={() => setMode('word2meaning')} s={s} />
-                    <ModeChip label="Nghĩa → Từ" active={mode === 'meaning2word'} onPress={() => setMode('meaning2word')} s={s} />
-                    <ModeChip label="Ảnh → Từ" active={mode === 'image2word'} onPress={() => setMode('image2word')} s={s} />
+
+            <View style={s.labelRow}>
+                <Text style={s.label}>Chạm để bắt đầu</Text>
+                <Pressable onPress={() => setShowTip((v) => !v)} style={s.tipBtn} hitSlop={8}>
+                    <UiIcon icon={Icons.CircleHelp} size={13} color={t.text.tertiary} />
+                </Pressable>
+            </View>
+            {showTip && (
+                <View style={s.tip}>
+                    <Text style={s.tipText}>
+                        Mỗi thẻ chỉ hiện lại khi bạn sắp quên. Từ mới phải đúng 2 lần trong một
+                        phiên mới tính là thuộc, nên nó sẽ quay lại vài lần.
+                    </Text>
                 </View>
             )}
-            {/* Chỉ giải thích chế độ ĐANG chọn: ba dòng cùng lúc là ba dòng để
-                đọc lướt rồi bỏ qua, một dòng đúng lúc thì người ta đọc. */}
-            <Text style={s.caption}>{kind === 'quiz' ? QUIZ_HINT : MODE_HINT[mode]}</Text>
-            <Pressable style={s.primaryBtn} onPress={start}>
-                <Text style={s.primaryBtnText}>Bắt đầu</Text>
-            </Pressable>
-            {/* Nói thật lượt này gồm gì. Hết thẻ đến hạn mà nút vẫn bấm được
-                thì phải cho biết bài lấy từ đâu, không thì người dùng tưởng
-                thẻ đến hạn tính sai. */}
-            {!dueCount && (
-                <Text style={s.hintText}>
-                    {aheadCount > 0
-                        ? `Hết thẻ đến hạn — lượt này ôn trước hạn và học thêm từ đã tra`
-                        : 'Chưa có thẻ nào — lượt này học từ đã tra, từ hôm nay và từ mới'}
-                </Text>
-            )}
 
-            {/* Ba điều người dùng không đoán ra được từ giao diện: vì sao số thẻ
-                mỗi ngày mỗi khác, vì sao một từ hiện lại mấy lần trong cùng phiên,
-                và chấm sai thì mất gì. Đúng ba dòng, không kể thêm. */}
-            <View style={s.guide}>
-                <Text style={s.guideTitle}>Cách ôn tập</Text>
-                <Text style={s.guideLine}>
-                    Mỗi thẻ chỉ hiện lại khi bạn sắp quên. Nhớ càng chắc, khoảng cách càng dài.
-                </Text>
-                <Text style={s.guideLine}>
-                    Từ mới phải đúng 2 lần trong cùng một phiên mới được tính là thuộc, nên nó
-                    sẽ quay lại vài lần.
-                </Text>
-                <Text style={s.guideLine}>
-                    {kind === 'quiz'
-                        ? 'Chọn sai không mất gì — thẻ chỉ quay lại sớm hơn, và bạn thấy ngay nghĩa đúng.'
-                        : 'Lật thẻ rồi chấm thật. Chấm “Chưa nhớ” không mất gì — thẻ chỉ quay lại sớm hơn.'}
-                </Text>
+            <View style={s.rows}>
+                <Pressable style={s.row} onPress={() => startWith('card')}>
+                    <UiIcon icon={Icons.Layers} size={22} color={t.accent.bg} />
+                    <View style={{ flex: 1 }}>
+                        <Text style={s.rowTitle}>Thẻ lật</Text>
+                        <Text style={s.rowSub}>Mỗi thẻ một chiều khác nhau</Text>
+                    </View>
+                    <UiIcon icon={Icons.ChevronRight} size={16} color={t.text.tertiary} />
+                </Pressable>
+                <Pressable style={s.row} onPress={() => startWith('quiz')}>
+                    <UiIcon icon={Icons.ListChecks} size={22} color={t.accent.bg} />
+                    <View style={{ flex: 1 }}>
+                        <Text style={s.rowTitle}>Trắc nghiệm</Text>
+                        <Text style={s.rowSub}>Chọn nghĩa đúng trong 4</Text>
+                    </View>
+                    <UiIcon icon={Icons.ChevronRight} size={16} color={t.text.tertiary} />
+                </Pressable>
             </View>
         </SafeAreaView>
     );
 }
 
-const MODE_HINT: Record<ReviewMode, string> = {
-    word2meaning: 'Hiện từ trước, bạn nhớ lại nghĩa.',
-    meaning2word: 'Hiện nghĩa trước, bạn nhớ lại từ.',
-    image2word: 'Nhìn ảnh, bạn đoán từ.',
-};
-
-const QUIZ_HINT = 'Từ kèm ảnh, chọn nghĩa đúng trong bốn nghĩa. Không tự chấm.';
-
-type Styles = ReturnType<typeof makeStyles>;
-
-function ModeChip({ label, active, onPress, s }: { label: string; active: boolean; onPress: () => void; s: Styles }) {
-    return (
-        <Pressable onPress={onPress} style={[s.modeChip, active && s.modeChipActive]}>
-            <Text style={[s.modeChipText, active && s.modeChipTextActive]}>{label}</Text>
-        </Pressable>
-    );
-}
-
 function makeStyles(t: Semantic) {
     return StyleSheet.create({
-        root: {
-            // Một cột căn giữa, không tách "cụm thao tác" và "hướng dẫn" thành
-            // hai khối neo hai đầu: làm vậy thì chỗ trống dồn vào GIỮA hai khối
-            // thành một cái hố, còn căn giữa thì nó rơi ra hai mép và đọc như lề.
-            flex: 1, alignItems: 'center', justifyContent: 'center',
-            backgroundColor: t.surface.canvas,
-            paddingHorizontal: 24, // paddingBottom: useTabBarSpace(), gán ở chỗ dùng
+        root: { flex: 1, backgroundColor: t.surface.canvas, paddingHorizontal: space.md, paddingTop: space.md },
+        statbar: {
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.md,
+            paddingBottom: space.sm, marginBottom: space.sm,
+            borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: t.border.default,
         },
-        big: { fontSize: 44, fontWeight: '600', color: t.text.primary },
-        secondaryText: { color: t.text.secondary },
-        hintText: { color: t.text.tertiary, marginTop: 10, fontSize: 13 },
-        rowGap: { flexDirection: 'row', gap: 10, paddingVertical: 14, flexWrap: 'wrap', justifyContent: 'center' },
-        primaryBtn: { marginTop: 18, backgroundColor: t.surface.inverse, paddingHorizontal: 36, paddingVertical: 13, borderRadius: 12 },
-        primaryBtnText: { color: t.text.onInverse, fontSize: 15, fontWeight: '600' },
-        ghostBtn: { marginTop: 12, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: t.border.default },
-        ghostBtnText: { fontSize: 14, color: t.text.secondary, fontWeight: '600' },
-        modeChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: t.border.default },
-        modeChipActive: { backgroundColor: t.surface.inverse, borderColor: t.surface.inverse },
-        modeChipText: { fontSize: 13, color: t.text.secondary },
-        modeChipTextActive: { color: t.text.onInverse },
-        bars: { flexDirection: 'row', gap: 10, alignItems: 'flex-end', marginTop: 16, height: 56 },
-        barCol: { alignItems: 'center', width: 22 },
-        bar: { width: 14, backgroundColor: t.accent.bg, borderRadius: 4 },
-        barLabel: { fontSize: 10, color: t.text.tertiary, marginTop: 4 },
-        caption: { fontSize: 12, color: t.text.tertiary, marginTop: 2, textAlign: 'center' },
-        // Căn trái trong một khối hẹp: chữ căn giữa nhiều dòng thì mắt phải dò
-        // lại điểm bắt đầu ở mỗi dòng.
-        guide: { marginTop: 30, gap: 6, alignSelf: 'stretch' },
-        guideTitle: {
-            fontSize: 11, fontWeight: '600', color: t.text.tertiary,
-            letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 2,
+        statItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+        statDivider: { width: StyleSheet.hairlineWidth, height: 13, backgroundColor: t.border.default },
+        statText: { fontSize: 12, color: t.text.secondary },
+        statTextStrong: { fontSize: 13, fontWeight: '600', color: t.text.primary },
+        labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.sm },
+        label: { fontSize: 12, color: t.text.tertiary },
+        tipBtn: {
+            width: 18, height: 18, borderRadius: radius.full, borderWidth: 1, borderColor: t.border.default,
+            alignItems: 'center', justifyContent: 'center',
         },
-        guideLine: { fontSize: 13, lineHeight: 18, color: t.text.secondary },
+        tip: { backgroundColor: t.surface.inverse, borderRadius: radius.md, padding: space.sm, marginBottom: space.sm },
+        tipText: { fontSize: 12, lineHeight: 17, color: t.text.onInverse },
+        rows: { gap: space.sm },
+        row: {
+            flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.sm + 4,
+            borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: t.border.default,
+        },
+        rowTitle: { fontSize: 13, fontWeight: '600', color: t.text.primary },
+        rowSub: { fontSize: 10, color: t.text.tertiary },
     });
 }

@@ -37,7 +37,7 @@ export default function ReviewSessionScreen() {
     const fs = FONT_MULT[useApp((st) => st.fontScale)];
     const s = useMemo(() => makeStyles(t, fs), [t, fs]);
 
-    const mode = useReviewSession((st) => st.mode);
+    const mode = useReviewSession((st) => st.cardMode);
     const kind = useReviewSession((st) => st.kind);
     const question = useReviewSession((st) => st.question);
     const picked = useReviewSession((st) => st.picked);

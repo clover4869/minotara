@@ -5,9 +5,10 @@ import type { LucideProps } from 'lucide-react-native';
 import {
     Volume2, Bookmark, BookmarkCheck, ArrowLeft, Search,
     History, X, BookOpen, CornerDownRight, ExternalLink,
-    RotateCcw, ChevronDown, ChevronUp, Upload, CircleHelp,
+    RotateCcw, ChevronDown, ChevronUp, ChevronRight, Upload, CircleHelp,
     Square, SquareCheck, Trash2, Share2, Headphones, Type,
     Layers, Settings, CircleX, Check, FileDown, CircleAlert, SquarePen, Images, House, Play,
+    Flame, ListChecks,
 } from 'lucide-react-native';
 import { playUrl } from '@/services/audio';
 import { icon as iconTokens, primitive } from '@/theme/tokens';
@@ -16,9 +17,10 @@ import { usePalette } from '@/theme/use-palette';
 export const Icons = {
     Volume2, Bookmark, BookmarkCheck, ArrowLeft, Search,
     History, X, BookOpen, CornerDownRight, ExternalLink,
-    RotateCcw, ChevronDown, ChevronUp, Upload, CircleHelp,
+    RotateCcw, ChevronDown, ChevronUp, ChevronRight, Upload, CircleHelp,
     Square, SquareCheck, Trash2, Share2, Headphones, Type,
     Layers, Settings, CircleX, Check, FileDown, CircleAlert, SquarePen, Images, House, Play,
+    Flame, ListChecks,
 };
 
 type Glyph = ComponentType<LucideProps>;
