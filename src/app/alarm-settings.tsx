@@ -42,6 +42,27 @@ const EVENT_LABEL: Record<AlarmEventStatus, string> = {
     missed: 'bỏ lỡ',
 };
 
+/** Hãng máy có lớp chặn app chạy nền RIÊNG, ngoài battery optimization chuẩn
+ *  Android — openAutostartSettings() có candidate cho từng cái. So khớp theo
+ *  chuỗi con, không phân biệt hoa/thường: Build.MANUFACTURER trả về giá trị
+ *  khác nhau tuỳ dòng máy ("Xiaomi", "POCO", "HUAWEI"...). */
+const OEM_MATCHES: { needle: string; label: string }[] = [
+    { needle: 'xiaomi', label: 'Xiaomi' },
+    { needle: 'redmi', label: 'Xiaomi' },
+    { needle: 'poco', label: 'Xiaomi' },
+    { needle: 'oppo', label: 'Oppo' },
+    { needle: 'realme', label: 'Oppo' },
+    { needle: 'vivo', label: 'Vivo' },
+    { needle: 'huawei', label: 'Huawei' },
+    { needle: 'honor', label: 'Huawei' },
+    { needle: 'samsung', label: 'Samsung' },
+];
+
+function oemLabelFor(manufacturer: string): string | null {
+    const m = manufacturer.toLowerCase();
+    return OEM_MATCHES.find((o) => m.includes(o.needle))?.label ?? null;
+}
+
 export default function AlarmSettingsScreen() {
     const t = usePalette();
     const s = useMemo(() => makeStyles(t), [t]);
@@ -50,6 +71,7 @@ export default function AlarmSettingsScreen() {
     const [scheduled, setScheduled] = useState(0);
     const [batteryExempt, setBatteryExempt] = useState(true);
     const [fullScreenAllowed, setFullScreenAllowed] = useState(true);
+    const [oemLabel, setOemLabel] = useState<string | null>(null);
     const [soundTitle, setSoundTitle] = useState('Mặc định hệ thống');
     const [events, setEvents] = useState<{ status: AlarmEventStatus; at: string }[]>([]);
 
@@ -69,6 +91,7 @@ export default function AlarmSettingsScreen() {
         if (Platform.OS === 'android') {
             setBatteryExempt(AlarmRinging.isIgnoringBatteryOptimizations());
             setFullScreenAllowed(AlarmRinging.canUseFullScreenIntent());
+            setOemLabel(oemLabelFor(AlarmRinging.getDeviceManufacturer()));
             setSoundTitle(getAlarmSoundTitle());
         }
     }, []);
@@ -168,6 +191,21 @@ export default function AlarmSettingsScreen() {
                     ],
                 );
             }
+            const oem = oemLabelFor(AlarmRinging.getDeviceManufacturer());
+            setOemLabel(oem);
+            if (oem) {
+                // Không có API để hỏi "đã bật Tự khởi động chưa" — khác battery/
+                // full-screen ở trên, hai cái đó Android cho hỏi lại được. Luôn
+                // nhắc khi bật công tắc, không điều kiện theo trạng thái nào cả.
+                Alert.alert(
+                    `Cho phép trên máy ${oem}`,
+                    `Máy ${oem} có lớp chặn app chạy nền RIÊNG, ngoài phần miễn tối ưu pin ở trên — thiếu quyền này thì báo thức có thể vẫn không kêu dù mọi thứ khác đã đúng.`,
+                    [
+                        { text: 'Để sau', style: 'cancel' },
+                        { text: 'Mở cài đặt', onPress: () => AlarmRinging.openAutostartSettings() },
+                    ],
+                );
+            }
         }
     }
 
@@ -227,6 +265,14 @@ export default function AlarmSettingsScreen() {
                     <Pressable style={s.warn} onPress={() => AlarmRinging.openFullScreenIntentSettings()}>
                         <Text style={s.warnText}>
                             Chưa được phép hiện toàn màn hình — đến giờ chỉ hiện thông báo nhỏ. Chạm để cho phép.
+                        </Text>
+                    </Pressable>
+                ) : null}
+                {cfg.enabled && Platform.OS === 'android' && oemLabel ? (
+                    <Pressable style={s.warn} onPress={() => AlarmRinging.openAutostartSettings()}>
+                        <Text style={s.warnText}>
+                            Máy {oemLabel} có lớp chặn chạy nền riêng, ngoài phần miễn tối ưu pin ở trên —
+                            Chạm để mở màn "Tự khởi động"/quản lý pin của {oemLabel}.
                         </Text>
                     </Pressable>
                 ) : null}
@@ -298,9 +344,10 @@ export default function AlarmSettingsScreen() {
                 </Text>
                 {Platform.OS === 'android' ? (
                     <Text style={s.note}>
-                        Máy Xiaomi/Oppo/Vivo/Samsung có thể vẫn chặn app chạy nền bất kể đã cấp quyền ở
-                        trên — đó là giới hạn của hãng máy, không sửa được từ trong app. Thiếu quyền nào
-                        thì mở lại màn này để thấy nhắc chạm-để-cấp ở đầu trang.
+                        {oemLabel
+                            ? `Màn "Tự khởi động"/quản lý pin ở trên là màn riêng của ${oemLabel}, Android không cho app tự bật quyền đó — mở đúng màn thôi, còn bật hay không vẫn cần bạn chạm tay.`
+                            : 'Một số hãng máy (Xiaomi/Oppo/Vivo/Huawei...) vẫn có thể chặn app chạy nền bất kể đã cấp quyền ở trên — đó là giới hạn của hãng máy, không sửa được từ trong app.'}
+                        {' '}Thiếu quyền nào thì mở lại màn này để thấy nhắc chạm-để-cấp ở đầu trang.
                     </Text>
                 ) : null}
 

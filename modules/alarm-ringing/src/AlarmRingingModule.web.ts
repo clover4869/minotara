@@ -16,6 +16,9 @@ class AlarmRingingModule extends NativeModule<{}> {
 
     getSelectedAlarmSoundTitle(): string { return 'Mặc định hệ thống'; }
     async pickAlarmSound(): Promise<string> { return 'Mặc định hệ thống'; }
+
+    getDeviceManufacturer(): string { return ''; }
+    async openAutostartSettings(): Promise<boolean> { return false; }
 }
 
 export default registerWebModule(AlarmRingingModule, 'AlarmRingingModule');

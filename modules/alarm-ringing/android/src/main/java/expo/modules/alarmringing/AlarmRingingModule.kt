@@ -5,6 +5,7 @@ import android.app.AlarmManager
 import android.app.KeyguardManager
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.RingtoneManager
@@ -13,6 +14,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -221,6 +223,56 @@ class AlarmRingingModule : Module() {
                     runCatching { context.startActivity(intent) }
                 }
             }
+        }
+
+        // Build.MANUFACTURER thô ("Xiaomi", "OPPO", "vivo", "HUAWEI"...) — để
+        // JS tự quyết định hiện banner riêng cho từng hãng thay vì đoán mù ở
+        // native. Không chuẩn hoá case ở đây, JS tự .toLowerCase() khi so khớp.
+        Function("getDeviceManufacturer") { Build.MANUFACTURER ?: "" }
+
+        // Màn "Tự khởi động"/quản lý pin RIÊNG của từng hãng máy — KHÁC HẲN
+        // isIgnoringBatteryOptimizations() (API chuẩn Android). MIUI/ColorOS/
+        // FuntouchOS/EMUI có lớp chặn app chạy nền của RIÊNG hãng, độc lập với
+        // battery optimization chuẩn — cấp "miễn tối ưu pin" xong app vẫn có
+        // thể bị chặn hoàn toàn nếu thiếu quyền này. Không có API chính thức
+        // để mở đúng màn (Google không chuẩn hoá), nên thử LẦN LƯỢT các
+        // component đã biết của từng hãng — cái nào không tồn tại trên máy thì
+        // startActivity ném ActivityNotFoundException, bắt lại rồi thử cái kế
+        // tiếp. Về cuối, nếu không cái nào mở được thì rơi về màn thông tin
+        // app — còn hơn không làm gì.
+        AsyncFunction("openAutostartSettings") { promise: Promise ->
+            val context = appContext.reactContext
+            if (context == null) {
+                promise.resolve(false)
+                return@AsyncFunction
+            }
+            val candidates = listOf(
+                ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+                ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
+                ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"),
+                ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"),
+                ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+                ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity"),
+                ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+                ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity"),
+            )
+            val opened = candidates.any { component ->
+                runCatching {
+                    val intent = Intent().setComponent(component).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                    true
+                }.getOrDefault(false)
+            }
+            if (!opened) {
+                runCatching {
+                    val fallback = Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:${context.packageName}"),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(fallback)
+                }
+            }
+            promise.resolve(opened)
         }
     }
 }

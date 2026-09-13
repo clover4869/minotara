@@ -33,6 +33,18 @@ declare class AlarmRingingModule extends NativeModule<{}> {
     /** Mở picker âm thanh có sẵn của hệ thống (lọc loại Alarm, ẩn tuỳ chọn Im lặng).
      *  Trả về tên hiển thị của lựa chọn mới — hoặc lựa chọn cũ nếu người dùng bấm back. */
     pickAlarmSound(): Promise<string>;
+
+    /** Build.MANUFACTURER thô ("Xiaomi", "OPPO", "vivo", "HUAWEI"...) — rỗng
+     *  nếu không đọc được. JS tự so khớp (không phân biệt hoa/thường) để quyết
+     *  định có hiện banner "Tự khởi động" riêng cho hãng máy hay không. */
+    getDeviceManufacturer(): string;
+    /** Mở màn "Tự khởi động"/quản lý pin RIÊNG của hãng máy (MIUI/ColorOS/
+     *  FuntouchOS/EMUI...) — KHÁC HẲN isIgnoringBatteryOptimizations(), lớp
+     *  chặn app chạy nền này độc lập với battery optimization chuẩn Android.
+     *  Thử lần lượt các màn đã biết của từng hãng, rơi về màn thông tin app
+     *  nếu không cái nào mở được. Trả về true nếu mở đúng được màn của hãng
+     *  máy (false = đã rơi về màn thông tin app chung). */
+    openAutostartSettings(): Promise<boolean>;
 }
 
 export default requireNativeModule<AlarmRingingModule>('AlarmRinging');
